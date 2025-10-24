@@ -1,0 +1,6 @@
+*pytest*
+*.env
+artifacts
+third_party
+*.lock
+__pycache__
