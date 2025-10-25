@@ -4,7 +4,7 @@
 - **DonationIngestor** listens to Donation Alerts via WebSocket (Centrifugo). On failure or startup fallback, it performs REST polling.
 - **Gatekeeper** applies RU/EN NSFW heuristics. NSFW requests bypass the LLM and enqueue a `render_text: "You are too small"` directive.
 - **WorkQueue** is a strict FIFO implemented with `asyncio.Queue` and an auxiliary deque for HUD previews. Concurrency is limited to a single renderer worker.
-- **LLM Orchestrator** вызывает локальный OpenAI-совместимый эндпоинт Ollama (модель `qwen2.5:7b-instruct-Q4_K_M`, 4-битное квантование), чтобы получить Canvas-DSL в формате JSON.
+- **LLM Orchestrator** вызывает локальный OpenAI-совместимый эндпоинт Ollama (модель `qwen2.5-coder:14b-instruct-q4_K_M`, 4-битное квантование), чтобы получить Canvas-DSL в формате JSON.
 - **Renderer** (pygame) interprets the DSL, animates drawing on a 96×96 surface, and upscales via nearest-neighbor into the display window. It renders HUD elements, queue status, and the caption "All for you".
 - **Control API** (FastAPI) exposes health, queue introspection, skip, and clear operations. WebSocket notifications broadcast status updates for operator tooling.
 

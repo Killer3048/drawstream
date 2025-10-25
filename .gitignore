@@ -4,3 +4,5 @@ artifacts
 third_party
 *.lock
 __pycache__
+  - assets/examples/aurora_cabin_plan.json
+  - out/

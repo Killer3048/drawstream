@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     llm_endpoint: AnyHttpUrl = Field(..., alias="LLM_ENDPOINT")
     llm_model_id: str = Field(..., alias="LLM_MODEL_ID")
     llm_temperature: float = Field(0.1, alias="LLM_TEMPERATURE")
-    llm_max_tokens: int = Field(512, alias="LLM_MAX_TOKENS")
+    llm_max_tokens: int = Field(1536, alias="LLM_MAX_TOKENS")
     llm_timeout_sec: float = Field(30.0, alias="LLM_TIMEOUT_SEC")
     llm_retry_attempts: int = Field(3, alias="LLM_RETRY_ATTEMPTS")
 

@@ -9,6 +9,7 @@ Interactive donation-driven pixel art pipeline for live streaming with a local Q
 - HUD overlay displaying current job, queue preview, timers, caption, and FPS
 - FastAPI control panel: health, queue snapshot, skip, and clear operations
 - Structured logging, environment-driven configuration, and graceful shutdown
+- Reference Canvas-DSL example (`assets/examples/aurora_cabin_plan.json`) + render script for QA (`tests/manual/create_reference_plan.py`)
 
 ## Prerequisites
 - **OS**: Windows 11 with WSL2 Ubuntu 24.04 and WSLg enabled (for pygame window forwarding)
@@ -21,7 +22,7 @@ Interactive donation-driven pixel art pipeline for live streaming with a local Q
        libportmidi-dev libfreetype6-dev
   ```
 - **Donation Alerts OAuth**: client credentials with `oauth-user-show`, `oauth-donation-subscribe`, and `oauth-donation-index` scopes
-- **Local LLM backend**: Ollama с моделью `qwen2.5:7b-instruct-Q4_K_M` (4-битное квантование)
+- **Local LLM backend**: Ollama с моделью `qwen2.5-coder:14b-instruct-q4_K_M` (4-битное квантование)
 
 ## Installation
 ```bash
@@ -42,9 +43,9 @@ Create a `.env` file in the project root and populate the following keys. Defaul
 | `QUEUE_MAX_SIZE` | Max queued donations | `32` |
 | `LLM_BACKEND` | `ollama` | `ollama` |
 | `LLM_ENDPOINT` | OpenAI-compatible chat completions endpoint | `http://127.0.0.1:11434/v1/chat/completions` |
-| `LLM_MODEL_ID` | Ollama модель (4-бит Q4_K_M) | `qwen2.5:7b-instruct-Q4_K_M` |
+| `LLM_MODEL_ID` | Ollama модель (4-бит Q4_K_M) | `qwen2.5-coder:14b-instruct-q4_K_M` |
 | `LLM_TEMPERATURE` | Sampling temperature | `0.1` |
-| `LLM_MAX_TOKENS` | Max generated tokens | `512` |
+| `LLM_MAX_TOKENS` | Max generated tokens | `1536` |
 | `LLM_TIMEOUT_SEC` | HTTP timeout for LLM requests | `30` |
 | `LLM_RETRY_ATTEMPTS` | Max retries for LLM failures | `3` |
 | `CANVAS_W`/`CANVAS_H` | Base canvas resolution | `96` |
@@ -79,14 +80,14 @@ This launches:
 ## LLM Backend (Ollama)
 - Установите [Ollама](https://ollama.com). После установки выполните:
   ```bash
-  ollama pull qwen2.5:7b-instruct-Q4_K_M
+  ollama pull qwen2.5-coder:14b-instruct-q4_K_M
   ollama serve
   ```
   Сервер по умолчанию слушает `127.0.0.1:11434`.
 - Убедитесь, что OpenAI-совместимый эндпоинт активен и модель действительно в квантовании Q4:
   ```bash
   curl http://127.0.0.1:11434/v1/models
-  ollama show qwen2.5:7b-instruct-Q4_K_M | grep quantization
+  ollama show qwen2.5-coder:14b-instruct-q4_K_M | grep quantization
   ```
 - Оркестратор использует `response_format={"type": "json_object"}` и температуру `0.1`, так что Ollama будет возвращать детерминированный JSON для Canvas-DSL.
 
@@ -106,6 +107,11 @@ Linting (optional but recommended):
 poetry run ruff check
 poetry run mypy src
 ```
+
+## Reference Assets
+- `assets/examples/aurora_cabin_plan.json` — вручную собранный Canvas-DSL с многоуровневым планом сцены «Aurora Cabin».
+- `tests/manual/create_reference_plan.py` — генерирует JSON и PNG (`out/reference/aurora_cabin_reference.png`) из эталонного плана.
+- `tests/manual/render_samples.py` — использует текущую LLM, чтобы сохранять PNG предпросмотры донатов в `out/render_samples/` (для ревью качества).
 
 ## Shutdown
 Press `Ctrl+C` in the terminal; the service gracefully closes WebSocket/HTTP clients, waits for the current render to finish (unless skipped), and shuts down pygame/WSLg resources.

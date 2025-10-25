@@ -13,7 +13,7 @@ DA_API_BASE=https://www.donationalerts.com/api/v1
 DA_ACCESS_TOKEN="ВАШ_ТОКЕН"
 DA_USER_ID=123456
 LLM_ENDPOINT=http://127.0.0.1:11434/v1/chat/completions
-LLM_MODEL_ID=qwen2.5:7b-instruct-Q4_K_M
+LLM_MODEL_ID=qwen2.5-coder:14b-instruct-q4_K_M
 LLM_BACKEND=ollama
 SHOW_DURATION_SEC=90
 ```
@@ -31,13 +31,13 @@ sudo apt install python3.11-dev python3.11-venv build-essential \
 ## 4. Запустите локальный сервер LLM
 Используем Ollama:
 ```bash
-ollama pull qwen2.5:7b-instruct-Q4_K_M
+ollama pull qwen2.5-coder:14b-instruct-q4_K_M
 ollama serve
 ```
 Сервер по умолчанию слушает `127.0.0.1:11434`. Убедитесь, что эндпоинт отвечает:
 ```bash
 curl http://127.0.0.1:11434/v1/models
-ollama show qwen2.5:7b-instruct-Q4_K_M | grep quantization
+ollama show qwen2.5-coder:14b-instruct-q4_K_M | grep quantization
 ```
 
 ## 5. Подготовьте Python-окружение
