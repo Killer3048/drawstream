@@ -31,6 +31,16 @@ class RenderTaskType(str, Enum):
     TEXT = "text"
 
 
+class SceneDescription(BaseModel):
+    """Structured plan produced by the scene planner."""
+
+    prompt: str
+    negative_prompt: Optional[str] = None
+    style_notes: Optional[str] = None
+    palette: list[str] = Field(default_factory=list)
+    seed: Optional[int] = None
+
+
 @dataclass(slots=True)
 class RenderTask:
     """Task handed to the renderer worker."""

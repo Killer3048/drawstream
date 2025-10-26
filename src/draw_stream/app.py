@@ -31,7 +31,7 @@ class DrawStreamApp:
         self._render_queue = QueueManager(self._settings.queue_max_size)
         self._renderer = RendererRuntime(self._render_queue, self._settings)
         self._gatekeeper = Gatekeeper()
-        self._orchestrator = LLMOrchestrator(self._settings)
+        self._orchestrator = LLMOrchestrator()
         self._control = ControlServer(self._render_queue, self._renderer, self._settings)
         self._ingestor = DonationIngestor(self._enqueue_donation, self._settings)
 
@@ -50,7 +50,6 @@ class DrawStreamApp:
         if self._api_server:
             self._api_server.should_exit = True
         if self._api_task:
-            self._api_task.cancel()
             try:
                 await self._api_task
             except asyncio.CancelledError:

@@ -48,7 +48,8 @@ class DonationAlertsWebSocket:
         }
 
         channel = self._channel_name()
-        async with websockets.connect(str(self._settings.da_ws_url), extra_headers=headers) as ws:
+        ws_url = self._ws_url()
+        async with websockets.connect(ws_url, additional_headers=headers) as ws:
             await self._send_subscribe(ws, channel)
             async for raw in ws:
                 event = self._parse_event(raw)
@@ -101,3 +102,10 @@ class DonationAlertsWebSocket:
             ts = ts.replace(tzinfo=timezone.utc)
         return ts.astimezone(timezone.utc)
 
+    def _ws_url(self) -> str:
+        raw = str(self._settings.da_ws_url)
+        if raw.startswith("https://"):
+            return "wss://" + raw[len("https://") :]
+        if raw.startswith("http://"):
+            return "ws://" + raw[len("http://") :]
+        return raw

@@ -63,9 +63,27 @@ class Settings(BaseSettings):
     canvas_w: int = Field(96, alias="CANVAS_W")
     canvas_h: int = Field(96, alias="CANVAS_H")
     window_scale: int = Field(8, alias="WINDOW_SCALE")
+    display_width: int = Field(1920, alias="DISPLAY_WIDTH")
+    display_height: int = Field(1080, alias="DISPLAY_HEIGHT")
     frame_rate: int = Field(60, alias="FRAME_RATE")
     default_step_duration_ms: int = Field(700, alias="DEFAULT_STEP_DURATION_MS")
     show_duration_sec: int = Field(90, alias="SHOW_DURATION_SEC")
+    pixel_model_base: str = Field(
+        "stabilityai/stable-diffusion-xl-base-1.0", alias="PIXEL_MODEL_BASE"
+    )
+    pixel_lora_repo: str = Field("nerijs/pixel-art-xl", alias="PIXEL_LORA_REPO")
+    pixel_lora_weight: str = Field("pixel-art-xl.safetensors", alias="PIXEL_LORA_WEIGHT")
+    pixel_device: str = Field("cuda", alias="PIXEL_DEVICE")
+    pixel_height: int = Field(768, alias="PIXEL_HEIGHT")
+    pixel_width: int = Field(768, alias="PIXEL_WIDTH")
+    pixel_num_inference_steps: int = Field(40, alias="PIXEL_INFERENCE_STEPS")
+    pixel_guidance_scale: float = Field(5.0, alias="PIXEL_GUIDANCE")
+    pixel_output_size: int = Field(96, alias="PIXEL_OUTPUT_SIZE")
+    pixel_palette_colors: int = Field(12, alias="PIXEL_PALETTE_COLORS")
+    pixel_stroke_chunk_size: int = Field(220, alias="PIXEL_STROKE_CHUNK")
+    pixel_animation_base_duration_ms: int = Field(450, alias="PIXEL_ANIMATION_BASE_MS")
+    pixel_animation_per_pixel_ms: int = Field(2, alias="PIXEL_ANIMATION_PER_PX_MS")
+    pixel_animation_delay_ms: int = Field(70, alias="PIXEL_ANIMATION_DELAY_MS")
 
     # API
     api_host: str = Field("0.0.0.0", alias="API_HOST")
@@ -93,7 +111,18 @@ class Settings(BaseSettings):
         "frame_rate",
         "default_step_duration_ms",
         "show_duration_sec",
+        "pixel_height",
+        "pixel_width",
+        "pixel_num_inference_steps",
+        "pixel_output_size",
+        "pixel_palette_colors",
+        "pixel_stroke_chunk_size",
+        "pixel_animation_base_duration_ms",
+        "pixel_animation_per_pixel_ms",
+        "pixel_animation_delay_ms",
         "api_port",
+        "display_width",
+        "display_height",
     )
     @classmethod
     def _ensure_positive(cls, value: int) -> int:

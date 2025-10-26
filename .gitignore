@@ -4,5 +4,9 @@ artifacts
 third_party
 *.lock
 __pycache__
-  - assets/examples/aurora_cabin_plan.json
-  - out/
+out/
+sdxl-base/
+pixel-art-xl/
+sdxl_bundle.tar.gz
+OFFLINE_README.txt
+diagnostics/

@@ -1,14 +1,16 @@
 # Draw Stream
 
-Interactive donation-driven pixel art pipeline for live streaming with a local Qwen 2.5 7B (Q4_K_M) inference backend served via Ollama.
+Interactive donation-driven pixel art pipeline for live streaming. Ollama (Qwen 2.5 Coder 14B) interprets donations and crafts prompts, while `nerijs/pixel-art-xl` (SDXL LoRA) renders the actual pixel art that we replay through a deterministic Canvas-DSL animation.
 
 ## Features
 - Donation Alerts ingestion via Centrifugo WebSocket with REST polling fallback
 - NSFW gatekeeper that downgrades unsafe requests to a static "You are too small" card
 - Deterministic Canvas-DSL interpreted by a pygame renderer with pixel-by-pixel animation
+- Faux brush-stroke animation that replays the SDXL output stroke-by-stroke on a 1080p layout
 - HUD overlay displaying current job, queue preview, timers, caption, and FPS
 - FastAPI control panel: health, queue snapshot, skip, and clear operations
 - Structured logging, environment-driven configuration, and graceful shutdown
+- Dual-stage art generation: scene planner (Ollama) + SDXL LoRA `nerijs/pixel-art-xl`, with automatic image-to-DSL conversion
 - Reference Canvas-DSL example (`assets/examples/aurora_cabin_plan.json`) + render script for QA (`tests/manual/create_reference_plan.py`)
 
 ## Prerequisites
@@ -23,6 +25,12 @@ Interactive donation-driven pixel art pipeline for live streaming with a local Q
   ```
 - **Donation Alerts OAuth**: client credentials with `oauth-user-show`, `oauth-donation-subscribe`, and `oauth-donation-index` scopes
 - **Local LLM backend**: Ollama с моделью `qwen2.5-coder:14b-instruct-q4_K_M` (4-битное квантование)
+- **Pixel diffusion stack**: см. раздел "Offline Weights" ниже.
+- **Pixel diffusion stack**: PyTorch 2.1+ CUDA 11.8, `diffusers>=0.29`, `transformers>=4.44`, `safetensors`, `xformers`, `scikit-image` (используется для обработки изображений). Перед запуском установите как минимум:
+  ```bash
+  pip install torch==2.1.2+cu118 torchvision==0.16.2+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
+  pip install diffusers==0.29.0 transformers==4.44.2 safetensors==0.4.4 scikit-image==0.24.0
+  ```
 
 ## Installation
 ```bash
@@ -46,10 +54,30 @@ Create a `.env` file in the project root and populate the following keys. Defaul
 | `LLM_MODEL_ID` | Ollama модель (4-бит Q4_K_M) | `qwen2.5-coder:14b-instruct-q4_K_M` |
 | `LLM_TEMPERATURE` | Sampling temperature | `0.1` |
 | `LLM_MAX_TOKENS` | Max generated tokens | `1536` |
+| `PIXEL_MODEL_BASE` | SDXL base checkpoint | `stabilityai/stable-diffusion-xl-base-1.0` |
+| `PIXEL_LORA_REPO` | LoRA weights (Hugging Face) | `nerijs/pixel-art-xl` |
+| `PIXEL_LORA_WEIGHT` | Weight filename | `pixel-art-xl.safetensors` |
+| `PIXEL_DEVICE` | Torch device | `cuda` |
+| `PIXEL_HEIGHT`/`PIXEL_WIDTH` | Diffusion canvas size | `768` |
+| `PIXEL_INFERENCE_STEPS` | Number of diffusion steps | `40` |
+| `PIXEL_GUIDANCE` | CFG guidance scale | `5.0` |
+| `PIXEL_OUTPUT_SIZE` | Downscaled Canvas-DSL size | `96` |
+| `PIXEL_PALETTE_COLORS` | Palette limit for quantization | `12` |
+| `PIXEL_STROKE_CHUNK` | Pixels per faux brush stroke | `220` |
+| `PIXEL_ANIMATION_BASE_MS` | Base duration per stroke | `450` |
+| `PIXEL_ANIMATION_PER_PX_MS` | Additional ms per pixel inside a stroke | `2` |
+| `PIXEL_ANIMATION_DELAY_MS` | Delay between successive strokes | `70` |
+
+## Offline Weights
+1. Запустите `tar -xzf sdxl_bundle.tar.gz` в корне проекта. Появятся директории `sdxl-base/` (готовая SDXL-пайплайн с fp16 VAE) и `pixel-art-xl/` (LoRA вес `pixel-art-xl.safetensors`).
+2. Убедитесь, что `.env` указывает на локальные пути (например, `PIXEL_MODEL_BASE=sdxl-base`, `PIXEL_LORA_REPO=pixel-art-xl`).
+3. Если веса лежат в другом месте, обновите пути или добавьте симлинки. Важна структура diffusers (UNet, text encoders, vae, scheduler, tokenizer).
+4. После распаковки можно удалить архив, он игнорируется `.gitignore`.
 | `LLM_TIMEOUT_SEC` | HTTP timeout for LLM requests | `30` |
 | `LLM_RETRY_ATTEMPTS` | Max retries for LLM failures | `3` |
 | `CANVAS_W`/`CANVAS_H` | Base canvas resolution | `96` |
-| `WINDOW_SCALE` | Upscale factor for display window | `8` |
+| `WINDOW_SCALE` | Preferred art upscale factor | `8` |
+| `DISPLAY_WIDTH`/`DISPLAY_HEIGHT` | Final pygame window size | `1920` / `1080` |
 | `FRAME_RATE` | Target FPS | `60` |
 | `DEFAULT_STEP_DURATION_MS` | Default per-step animation duration | `700` |
 | `SHOW_DURATION_SEC` | Hold time after drawing completes | `90` |
@@ -75,9 +103,9 @@ This launches:
 - Canvas-DSL describes drawing primitives (`rect`, `circle`, `line`, `polygon`, `pixels`, `text`, `group`) and animation metadata (`stroke`, `fill`, `pixel_reveal`, delays, duration).
 - Plans produced by the LLM are validated via `pydantic` to guarantee deterministic playback.
 - When the NSFW gatekeeper fires or the LLM fails, the renderer displays a text-only scene with the message `You are too small` for `SHOW_DURATION_SEC` seconds.
-- HUD overlay: active donor info, request message, progress bar, queue preview, FPS indicator, and caption “All for you”.
+- HUD overlay: active donor info, request message, progress bar, queue preview, FPS indicator, and caption “All for you”. The pygame window is fixed at 1080p (configurable) with the animated canvas on the left and the translucent HUD panel on the right so OBS can capture a ready-to-stream composition.
 
-## LLM Backend (Ollama)
+## LLM + Pixel Backend
 - Установите [Ollама](https://ollama.com). После установки выполните:
   ```bash
   ollama pull qwen2.5-coder:14b-instruct-q4_K_M
@@ -89,7 +117,9 @@ This launches:
   curl http://127.0.0.1:11434/v1/models
   ollama show qwen2.5-coder:14b-instruct-q4_K_M | grep quantization
   ```
-- Оркестратор использует `response_format={"type": "json_object"}` и температуру `0.1`, так что Ollama будет возвращать детерминированный JSON для Canvas-DSL.
+- Scene Planner (Ollama) выдаёт JSON с prompt/negative prompt/палитрой.
+- Pixel Generator (`pixel-art-xl`) запускается через `diffusers`; LoRA автоматически подмешивается поверх SDXL.
+- Модуль `ImageToCanvas` уменьшает результат до 96×96, квантует палитру и создаёт Canvas-DSL шаги с псевдо-анимацией.
 
 ## Streaming Integration
 1. In Windows, configure OBS Studio to capture the WSLg pygame window via *Window Capture*.
@@ -112,6 +142,7 @@ poetry run mypy src
 - `assets/examples/aurora_cabin_plan.json` — вручную собранный Canvas-DSL с многоуровневым планом сцены «Aurora Cabin».
 - `tests/manual/create_reference_plan.py` — генерирует JSON и PNG (`out/reference/aurora_cabin_reference.png`) из эталонного плана.
 - `tests/manual/render_samples.py` — использует текущую LLM, чтобы сохранять PNG предпросмотры донатов в `out/render_samples/` (для ревью качества).
+- `tests/manual/scene_planner_probe.py` — прогоняет ~10 разнообразных донатов через ScenePlanner и сохраняет ответы в `out/scene_planner_probe/` для ручного ревью.
 
 ## Shutdown
 Press `Ctrl+C` in the terminal; the service gracefully closes WebSocket/HTTP clients, waits for the current render to finish (unless skipped), and shuts down pygame/WSLg resources.

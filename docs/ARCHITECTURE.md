@@ -4,8 +4,8 @@
 - **DonationIngestor** listens to Donation Alerts via WebSocket (Centrifugo). On failure or startup fallback, it performs REST polling.
 - **Gatekeeper** applies RU/EN NSFW heuristics. NSFW requests bypass the LLM and enqueue a `render_text: "You are too small"` directive.
 - **WorkQueue** is a strict FIFO implemented with `asyncio.Queue` and an auxiliary deque for HUD previews. Concurrency is limited to a single renderer worker.
-- **LLM Orchestrator** вызывает локальный OpenAI-совместимый эндпоинт Ollama (модель `qwen2.5-coder:14b-instruct-q4_K_M`, 4-битное квантование), чтобы получить Canvas-DSL в формате JSON.
-- **Renderer** (pygame) interprets the DSL, animates drawing on a 96×96 surface, and upscales via nearest-neighbor into the display window. It renders HUD elements, queue status, and the caption "All for you".
+- **ArtPipeline**: `ScenePlanner` (Ollama Qwen 2.5 Coder 14B) интерпретирует донат, `PixelArtGenerator` (SDXL + LoRA `nerijs/pixel-art-xl`) синтезирует картинку, `ImageToCanvas` уменьшает изображение до 96×96 и превращает его в Canvas-DSL шаги.
+- **Renderer** (pygame) interprets the DSL, animates drawing on a 96×96 surface with faux brush-stroke chunks, and upscales into a 1080p-ready window where the art occupies the left column and HUD lives on a translucent panel to the right.
 - **Control API** (FastAPI) exposes health, queue introspection, skip, and clear operations. WebSocket notifications broadcast status updates for operator tooling.
 
 ## Module Layout
@@ -16,8 +16,14 @@ src/draw_stream/
   logging.py           # Structured logging bootstrap
   models.py            # Shared dataclasses/pydantic models for donations & tasks
   gatekeeper.py        # Keyword/regex-based NSFW filter
-  llm.py               # OpenAI-compatible client, response validation, retries
+  llm.py               # Compatibility wrapper over the new art pipeline
   canvas_dsl.py        # Pydantic schema + helpers for Canvas-DSL
+  artistry/
+    __init__.py
+    scene_planner.py   # Ollama JSON scene description
+    pixel_generator.py # Diffusers pipeline with pixel-art-xl LoRA
+    image_to_canvas.py # Palette quantization + Canvas-DSL conversion
+    pipeline.py        # High-level coordination (scene -> image -> DSL)
   donation/
     __init__.py
     websocket.py       # Centrifugo subscription client
@@ -40,19 +46,21 @@ src/draw_stream/
 ## Data Model
 - **DonationEvent**: normalized payload (`id`, `donor`, `message`, `amount`, `currency`, `timestamp`).
 - **RenderTask**: includes event metadata, gatekeeper status, and either `RenderInstruction` (canvas DSL) or sentinel for fallback text.
-- **CanvasPlan** (`CanvasDSLDocument`): top-level DSL object with schema validation and deterministic defaults (seed, durations).
+- **CanvasPlan** (`CanvasDSLDocument`): top-level DSL object produced from quantized pixel art.
+- **SceneDescription**: structured prompt/negative_prompt/palette coming from the LLM scene planner.
 - **RendererState**: shared across HUD & API; tracks active task, queue preview, timers, and FPS metrics.
 
 ## Control Flow
 1. Ingestor pushes `DonationEvent` into `QueueManager.enqueue_request`.
-2. Worker pulls next request, applies gatekeeper, triggers orchestrator if needed, then passes a validated `CanvasPlan` to the renderer.
+2. Worker pulls next request, applies gatekeeper, запускает `ArtPipeline` (LLM summary → pixel-art-xl inference → Canvas-DSL), затем передаёт план рендереру.
 3. Renderer animates all steps sequentially, enforcing per-step animation metadata. Upon completion, it holds the final frame for `SHOW_DURATION_SEC` (~90s) before acknowledging completion.
 4. During idle/hold periods, HUD shows countdown timer and queue preview. Queue remains blocked while the hold timer runs.
 5. Operator actions (skip/clear) manipulate the queue via `QueueManager` APIs exposed through FastAPI, signalling renderer where appropriate.
 
 ## Reliability Considerations
 - **Resilience**: WebSocket client automatically reconnects with exponential backoff; REST polling runs periodically when WS unavailable.
-- **LLM Robustness**: HTTPX client enforces low temperature, timeouts, retries with jitter. Responses validated against DSL schema; invalid JSON downgraded to fallback text with logged error.
+- **Scene Planning Robustness**: HTTPX client использует низкую температуру, ретраи и `json-repair`; при ошибке весь пайплайн оборачивается в fallback текст.
+- **Pixel Generation**: diffusers-пайплайн инициализируется один раз; при исключениях возвращаем текстовую заглушку.
 - **Renderer Safety**: `RendererRuntime` catches exceptions per step, logs, and displays fallback notification overlay.
 - **Shutdown**: Graceful cancellation of ingest, worker, renderer, and API tasks; cleans up HTTP clients and pygame resources.
 
@@ -60,15 +68,16 @@ src/draw_stream/
 Environment variables (loaded via `python-dotenv`):
 - Donation Alerts: `DA_WS_URL`, `DA_API_URL`, `DA_CLIENT_ID`, `DA_CLIENT_SECRET`, `DA_ACCESS_TOKEN`, `DA_USER_ID`, `DA_REST_POLL_INTERVAL_SEC`.
 - LLM: `LLM_BACKEND`, `LLM_ENDPOINT`, `LLM_MODEL_ID`, `LLM_TEMPERATURE`, `LLM_MAX_TOKENS`, `LLM_TIMEOUT_SEC`.
+- Pixel generator: `PIXEL_MODEL_BASE`, `PIXEL_LORA_REPO`, `PIXEL_LORA_WEIGHT`, `PIXEL_DEVICE`, `PIXEL_HEIGHT`, `PIXEL_WIDTH`, `PIXEL_INFERENCE_STEPS`, `PIXEL_GUIDANCE`, `PIXEL_OUTPUT_SIZE`, `PIXEL_PALETTE_COLORS`.
 - Renderer: `CANVAS_W`, `CANVAS_H`, `WINDOW_SCALE`, `FRAME_RATE`, `DEFAULT_STEP_DURATION_MS`, `SHOW_DURATION_SEC`.
 - API: `API_HOST`, `API_PORT`.
 - Misc: `LOG_LEVEL`, `LOCALE`.
 
 ## HUD Composition
-- Left column: current donor name, amount/currency, message (wrapped), progress bar for drawing/hold phases.
-- Right column: "Next up" list (up to 5 queued donors/messages) with ETA estimates based on configured durations.
-- Bottom banner: static caption **All for you** aligned centered.
-- Top-right: queue length counter + FPS rolling average.
+- Animated canvas lives on the left half of the 1080p window; the right column is a translucent HUD panel rendered by `HudRenderer`.
+- Panel top: donor identity, amount/currency, wrapped message, live progress bar, and hold countdown.
+- Panel lower half: "Next up" list (up to five queued donors/messages) with nested lines pulled from the queue preview.
+- Bottom center keeps the caption **All for you**, while the fps counter now hugs the bottom-right corner of the full window.
 
 ## Testing Strategy
 - Unit tests for gatekeeper regex coverage, DSL validation, and orchestrator fallback handling.

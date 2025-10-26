@@ -16,6 +16,22 @@ LLM_ENDPOINT=http://127.0.0.1:11434/v1/chat/completions
 LLM_MODEL_ID=qwen2.5-coder:14b-instruct-q4_K_M
 LLM_BACKEND=ollama
 SHOW_DURATION_SEC=90
+PIXEL_MODEL_BASE=stabilityai/stable-diffusion-xl-base-1.0
+PIXEL_LORA_REPO=nerijs/pixel-art-xl
+PIXEL_LORA_WEIGHT=pixel-art-xl.safetensors
+PIXEL_DEVICE=cuda
+PIXEL_HEIGHT=768
+PIXEL_WIDTH=768
+PIXEL_INFERENCE_STEPS=40
+PIXEL_GUIDANCE=5.0
+PIXEL_OUTPUT_SIZE=96
+PIXEL_PALETTE_COLORS=12
+PIXEL_STROKE_CHUNK=220
+PIXEL_ANIMATION_BASE_MS=450
+PIXEL_ANIMATION_PER_PX_MS=2
+PIXEL_ANIMATION_DELAY_MS=70
+DISPLAY_WIDTH=1920
+DISPLAY_HEIGHT=1080
 ```
 > Файл `.env` не коммитить и никому не пересылать.
 
@@ -40,10 +56,21 @@ curl http://127.0.0.1:11434/v1/models
 ollama show qwen2.5-coder:14b-instruct-q4_K_M | grep quantization
 ```
 
+### 4.1 Распакуйте оффлайн веса
+```
+tar -xzf sdxl_bundle.tar.gz
+```
+Появятся директории `sdxl-base/` и `pixel-art-xl/`. Проследите, чтобы переменные `PIXEL_MODEL_BASE` и `PIXEL_LORA_REPO` ссылались на них.
+
 ## 5. Подготовьте Python-окружение
 ```
 poetry install --with dev
 source $(poetry env info --path)/bin/activate
+```
+Установите зависимости для pixel-art генерации (пример для CUDA 11.8):
+```
+pip install torch==2.1.2+cu118 torchvision==0.16.2+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
+pip install diffusers==0.29.0 transformers==4.44.2 safetensors==0.4.4 scikit-image==0.24.0
 ```
 
 ## 6. Проверьте OAuth-токен
@@ -68,7 +95,7 @@ poetry run python -m draw_stream.main
 - `GET /queue` — текущее состояние.
 - `POST /queue/skip` — пропуск текущего рисунка.
 - `POST /queue/clear` — очистка очереди (без остановки действующего рендера).
-- Следите за логами (`llm.plan_failed` подскажет проблемы с генерацией).
+- Следите за логами (`scene.planned`, `art.fallback`) чтобы видеть, насколько быстро работает пайплайн.
 
 ## 10. Корректное завершение
 - Нажмите `Ctrl+C` в терминале.

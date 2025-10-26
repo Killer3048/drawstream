@@ -52,21 +52,31 @@ class RendererRuntime:
         self._base_surface = create_canvas(self._settings.canvas_w, self._settings.canvas_h)
         self._frame_surface = self._base_surface.copy()
         self._display_surface: Optional[pygame.Surface] = None
+        self._backdrop_surface: Optional[pygame.Surface] = None
         self._hud: Optional[HudRenderer] = None
         self._clock = pygame.time.Clock()
         self._step_preparer: Optional[StepPreparer] = None
         self._bg_color = hex_to_rgb("#202020")
+        self._accent_color = hex_to_rgb("#6C63FF")
+        self._shadow_color = hex_to_rgb("#090C12")
         self._skip_requested = False
         self._queue_preview: list[RenderTask] = []
+        self._queue_length = 0
+        self._canvas_scale = max(1, self._settings.window_scale)
+        self._canvas_rect = pygame.Rect(0, 0, self._settings.canvas_w * self._canvas_scale, self._settings.canvas_h * self._canvas_scale)
+        self._side_padding = 48
+        self._canvas_frame_rect = self._canvas_rect.inflate(40, 40)
 
     async def start(self) -> None:
         if self._running:
             return
         configure_logging()
-        window_width = self._settings.canvas_w * self._settings.window_scale
-        window_height = self._settings.canvas_h * self._settings.window_scale
+        window_width = self._settings.display_width
+        window_height = self._settings.display_height
+        self._compute_canvas_layout(window_width, window_height)
         init_pygame("Draw Stream", window_width, window_height)
         self._display_surface = pygame.display.get_surface()
+        self._backdrop_surface = self._build_backdrop_surface(window_width, window_height)
         self._hud = HudRenderer((window_width, window_height))
         self._running = True
         self._loop_task = asyncio.create_task(self._run_loop(), name="renderer-loop")
@@ -233,7 +243,7 @@ class RendererRuntime:
             return
 
         active_surface = self._frame_surface if not self._drawing_complete else self._base_surface
-        scaled = upscale(active_surface, self._settings.window_scale)
+        scaled = upscale(active_surface, self._canvas_scale)
 
         progress = self._compute_progress()
         hold_remaining = max(0.0, (self._holding_until or 0) - time.monotonic()) if self._holding_until else 0.0
@@ -251,8 +261,9 @@ class RendererRuntime:
             fps=self._clock.get_fps(),
         )
 
-        self._hud.draw(scaled, hud_state)
-        self._display_surface.blit(scaled, (0, 0))
+        self._display_surface.fill(self._backdrop_color)
+        self._display_surface.blit(scaled, self._canvas_rect)
+        self._hud.draw(self._display_surface, hud_state, self._canvas_rect)
         pygame.display.flip()
 
     def _compute_progress(self) -> float:
@@ -287,3 +298,13 @@ class RendererRuntime:
         self._base_surface.fill(self._bg_color)
         self._frame_surface = self._base_surface.copy()
         self._skip_requested = False
+
+    def _compute_canvas_layout(self, window_width: int, window_height: int) -> None:
+        max_scale_width = max(1, (window_width // 2 - self._side_padding * 2) // self._settings.canvas_w)
+        max_scale_height = max(1, (window_height - self._side_padding * 2) // self._settings.canvas_h)
+        resolved_scale = min(max_scale_width, max_scale_height, self._settings.window_scale)
+        self._canvas_scale = max(1, resolved_scale)
+        canvas_px_w = self._settings.canvas_w * self._canvas_scale
+        canvas_px_h = self._settings.canvas_h * self._canvas_scale
+        top = max(self._side_padding, (window_height - canvas_px_h) // 2)
+        self._canvas_rect = pygame.Rect(self._side_padding, top, canvas_px_w, canvas_px_h)

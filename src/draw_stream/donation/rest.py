@@ -34,7 +34,7 @@ class DonationAlertsRESTClient:
         await self._client.aclose()
 
     async def fetch_latest(self, limit: int = 10) -> Iterable[DonationEvent]:
-        response = await self._client.get("/donations", params={"limit": limit})
+        response = await self._client.get("/alerts/donations", params={"limit": limit})
         response.raise_for_status()
 
         payload = response.json()
@@ -66,4 +66,3 @@ class DonationAlertsRESTClient:
             currency=currency,
             timestamp=timestamp,
         )
-

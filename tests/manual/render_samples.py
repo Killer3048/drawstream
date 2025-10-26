@@ -15,6 +15,9 @@ sys.path.append(str(ROOT / "src"))
 import pygame  # noqa: E402
 
 from draw_stream.config import get_settings  # noqa: E402
+# Diagnostics/VRAM helpers
+from subprocess import run
+
 from draw_stream.llm import LLMOrchestrator  # noqa: E402
 from draw_stream.models import DonationEvent  # noqa: E402
 from draw_stream.renderer.animations import StepPreparer  # noqa: E402
@@ -28,6 +31,7 @@ SAMPLES = [
 ]
 
 OUTPUT_DIR = Path("out/render_samples")
+OLLAMA_MODEL = "qwen2.5-coder:14b-instruct-q4_K_M"
 
 
 async def generate_plan(orchestrator: LLMOrchestrator, message: str) -> tuple[str, str, pygame.Surface]:
@@ -66,6 +70,7 @@ async def generate_plan(orchestrator: LLMOrchestrator, message: str) -> tuple[st
 
 
 async def main() -> None:
+    clear_vram()
     pygame.init()
     pygame.font.init()
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -85,6 +90,20 @@ async def main() -> None:
     finally:
         await orchestrator.aclose()
         pygame.quit()
+
+
+def clear_vram() -> None:
+    try:
+        run(["ollama", "stop", OLLAMA_MODEL], check=False)
+    except FileNotFoundError:
+        pass
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

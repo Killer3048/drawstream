@@ -26,25 +26,36 @@ class HUDState:
 class HudRenderer:
     def __init__(self, window_size: tuple[int, int]) -> None:
         width, _ = window_size
-        base_size = max(16, width // 40)
-        self._title_font = pygame.font.SysFont("arial", base_size + 4, bold=True)
+        base_size = max(20, width // 60)
+        self._title_font = pygame.font.SysFont("arial", base_size + 6, bold=True)
         self._body_font = pygame.font.SysFont("arial", base_size)
-        self._small_font = pygame.font.SysFont("arial", base_size - 4)
+        self._small_font = pygame.font.SysFont("arial", base_size - 6)
         self._fg = hex_to_rgb("#FFFFFF")
         self._accent = hex_to_rgb("#66CCFF")
         self._warning = hex_to_rgb("#FF6666")
+        self._panel_bg = (*hex_to_rgb("#11151C"), 200)
+        self._padding = 32
 
-    def draw(self, surface: pygame.Surface, state: HUDState) -> None:
+    def draw(self, surface: pygame.Surface, state: HUDState, canvas_rect: pygame.Rect) -> None:
         width, height = surface.get_size()
-        padding = 20
+        panel_x = canvas_rect.right + self._padding
+        panel_width = max(260, width - panel_x - self._padding)
+        if panel_x + panel_width + self._padding > width:
+            panel_x = max(self._padding, width - panel_width - self._padding)
+        panel_rect = pygame.Rect(panel_x - 16, self._padding - 16, panel_width + 32, height - 2 * self._padding + 32)
+        panel_surface = pygame.Surface(panel_rect.size, pygame.SRCALPHA)
+        panel_surface.fill(self._panel_bg)
+        surface.blit(panel_surface, panel_rect.topleft)
 
-        self._draw_active(surface, state, padding, width // 2 - padding)
-        self._draw_queue(surface, state.queue_preview, width // 2 + padding, padding, width - padding)
+        content_rect = pygame.Rect(panel_x, self._padding, panel_width, height - 2 * self._padding)
+        self._draw_active(surface, state, content_rect)
+        self._draw_queue(surface, state.queue_preview, content_rect)
         self._draw_caption(surface, state.caption, width, height)
-        self._draw_fps(surface, state.fps, width - padding, height - padding)
+        self._draw_fps(surface, state.fps, width - self._padding, height - self._padding)
 
-    def _draw_active(self, surface: pygame.Surface, state: HUDState, x: int, max_width: int) -> None:
-        y = 20
+    def _draw_active(self, surface: pygame.Surface, state: HUDState, rect: pygame.Rect) -> None:
+        x = rect.x
+        y = rect.y
         title = "Drawing: "
         if state.active_task:
             event = state.active_task.event
@@ -57,14 +68,14 @@ class HudRenderer:
         y += title_surf.get_height() + 10
 
         if state.active_task:
-            message_lines = wrap(state.active_task.event.message or "", width=50)
-            for line in message_lines[:5]:
+            message_lines = wrap(state.active_task.event.message or "", width=38)
+            for line in message_lines[:6]:
                 message_surf = self._body_font.render(line, True, self._fg)
                 surface.blit(message_surf, (x, y))
                 y += message_surf.get_height() + 4
 
         y += 10
-        self._draw_progress(surface, x, y, max_width - x, state.progress, state.hold_remaining, state.hold_total)
+        self._draw_progress(surface, x, y, rect.width - 20, state.progress, state.hold_remaining, state.hold_total)
 
     def _draw_progress(
         self,
@@ -90,13 +101,13 @@ class HudRenderer:
         self,
         surface: pygame.Surface,
         queue_preview: Sequence[RenderTask],
-        x: int,
-        y: int,
-        max_width: int,
+        rect: pygame.Rect,
     ) -> None:
+        x = rect.x
+        y = rect.y + rect.height // 2
         header = self._title_font.render("Next up", True, self._fg)
         surface.blit(header, (x, y))
-        y += header.get_height() + 10
+        y += header.get_height() + 8
 
         for idx, task in enumerate(queue_preview[:5], start=1):
             donor = task.event.donor or "anonymous"
@@ -106,7 +117,7 @@ class HudRenderer:
             y += label_surf.get_height() + 4
 
             if task.event.message:
-                for line in wrap(task.event.message, width=40):
+                for line in wrap(task.event.message, width=36):
                     line_surf = self._small_font.render(line, True, self._fg)
                     surface.blit(line_surf, (x + 20, y))
                     y += line_surf.get_height() + 2
@@ -121,4 +132,3 @@ class HudRenderer:
         label = self._small_font.render(f"FPS: {fps:0.1f}", True, self._fg)
         rect = label.get_rect(bottomright=(x, y))
         surface.blit(label, rect)
-
