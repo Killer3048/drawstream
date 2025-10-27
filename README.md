@@ -49,13 +49,15 @@ Create a `.env` file in the project root and populate the following keys. Defaul
 | `DA_USER_ID` | Donation Alerts numeric user ID | optional |
 | `DA_REST_POLL_INTERVAL_SEC` | REST polling interval (fallback) | `30` |
 | `QUEUE_MAX_SIZE` | Max queued donations | `32` |
-| `LLM_BACKEND` | `ollama` | `ollama` |
+| `LLM_BACKEND` | Which orchestrator to use (`ollama`, etc.) | `ollama` |
 | `LLM_ENDPOINT` | OpenAI-compatible chat completions endpoint | `http://127.0.0.1:11434/v1/chat/completions` |
-| `LLM_MODEL_ID` | Ollama модель (4-бит Q4_K_M) | `qwen2.5-coder:14b-instruct-q4_K_M` |
+| `LLM_MODEL_ID` | Local model served via Ollama | `qwen2.5-coder:14b-instruct-q4_K_M` |
 | `LLM_TEMPERATURE` | Sampling temperature | `0.1` |
 | `LLM_MAX_TOKENS` | Max generated tokens | `1536` |
+| `LLM_TIMEOUT_SEC` | HTTP timeout for LLM requests | `30` |
+| `LLM_RETRY_ATTEMPTS` | Max retries for LLM failures | `3` |
 | `PIXEL_MODEL_BASE` | SDXL base checkpoint | `stabilityai/stable-diffusion-xl-base-1.0` |
-| `PIXEL_LORA_REPO` | LoRA weights (Hugging Face) | `nerijs/pixel-art-xl` |
+| `PIXEL_LORA_REPO` | LoRA repo (local folder or HF id) | `nerijs/pixel-art-xl` |
 | `PIXEL_LORA_WEIGHT` | Weight filename | `pixel-art-xl.safetensors` |
 | `PIXEL_DEVICE` | Torch device | `cuda` |
 | `PIXEL_HEIGHT`/`PIXEL_WIDTH` | Diffusion canvas size | `768` |
@@ -65,24 +67,23 @@ Create a `.env` file in the project root and populate the following keys. Defaul
 | `PIXEL_PALETTE_COLORS` | Palette limit for quantization | `12` |
 | `PIXEL_STROKE_CHUNK` | Pixels per faux brush stroke | `220` |
 | `PIXEL_ANIMATION_BASE_MS` | Base duration per stroke | `450` |
-| `PIXEL_ANIMATION_PER_PX_MS` | Additional ms per pixel inside a stroke | `2` |
+| `PIXEL_ANIMATION_PER_PX_MS` | Additional ms per pixel | `2` |
 | `PIXEL_ANIMATION_DELAY_MS` | Delay between successive strokes | `70` |
+| `CANVAS_W`/`CANVAS_H` | Base canvas resolution | `96` |
+| `WINDOW_SCALE` | Preferred art upscale factor | `8` |
+| `DISPLAY_WIDTH`/`DISPLAY_HEIGHT` | Final pygame window size | `1920` / `1080` |
+| `FRAME_RATE` | Target renderer FPS | `60` |
+| `DEFAULT_STEP_DURATION_MS` | Default per-step animation duration | `700` |
+| `SHOW_DURATION_SEC` | Hold time after drawing completes | `90` |
+| `API_HOST` / `API_PORT` | FastAPI bind address | `0.0.0.0` / `8080` |
+| `LOG_LEVEL` | Logging level | `INFO` |
+| `LOCALE` | Locale hints for the LLM | `en` |
 
 ## Offline Weights
 1. Запустите `tar -xzf sdxl_bundle.tar.gz` в корне проекта. Появятся директории `sdxl-base/` (готовая SDXL-пайплайн с fp16 VAE) и `pixel-art-xl/` (LoRA вес `pixel-art-xl.safetensors`).
 2. Убедитесь, что `.env` указывает на локальные пути (например, `PIXEL_MODEL_BASE=sdxl-base`, `PIXEL_LORA_REPO=pixel-art-xl`).
 3. Если веса лежат в другом месте, обновите пути или добавьте симлинки. Важна структура diffusers (UNet, text encoders, vae, scheduler, tokenizer).
 4. После распаковки можно удалить архив, он игнорируется `.gitignore`.
-| `LLM_TIMEOUT_SEC` | HTTP timeout for LLM requests | `30` |
-| `LLM_RETRY_ATTEMPTS` | Max retries for LLM failures | `3` |
-| `CANVAS_W`/`CANVAS_H` | Base canvas resolution | `96` |
-| `WINDOW_SCALE` | Preferred art upscale factor | `8` |
-| `DISPLAY_WIDTH`/`DISPLAY_HEIGHT` | Final pygame window size | `1920` / `1080` |
-| `FRAME_RATE` | Target FPS | `60` |
-| `DEFAULT_STEP_DURATION_MS` | Default per-step animation duration | `700` |
-| `SHOW_DURATION_SEC` | Hold time after drawing completes | `90` |
-| `API_HOST`/`API_PORT` | FastAPI bind address | `0.0.0.0` / `8080` |
-| `LOG_LEVEL` | Logging level | `INFO` |
 
 ## Running the Service
 ```bash

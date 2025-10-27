@@ -237,6 +237,7 @@ class RendererRuntime:
 
     async def _refresh_preview(self) -> None:
         self._queue_preview = await self._queue.preview(limit=5)
+        self._queue_length = await self._queue.size()
 
     def _render_frame(self) -> None:
         if not self._display_surface or not self._hud:
@@ -257,11 +258,16 @@ class RendererRuntime:
             hold_remaining=hold_remaining,
             hold_total=hold_total,
             queue_preview=self._queue_preview,
+            queue_length=self._queue_length,
             caption=self._caption,
             fps=self._clock.get_fps(),
         )
 
-        self._display_surface.fill(self._backdrop_color)
+        if self._backdrop_surface:
+            self._display_surface.blit(self._backdrop_surface, (0, 0))
+        else:
+            self._display_surface.fill(self._shadow_color)
+        self._draw_canvas_frame()
         self._display_surface.blit(scaled, self._canvas_rect)
         self._hud.draw(self._display_surface, hud_state, self._canvas_rect)
         pygame.display.flip()
@@ -308,3 +314,44 @@ class RendererRuntime:
         canvas_px_h = self._settings.canvas_h * self._canvas_scale
         top = max(self._side_padding, (window_height - canvas_px_h) // 2)
         self._canvas_rect = pygame.Rect(self._side_padding, top, canvas_px_w, canvas_px_h)
+        self._canvas_frame_rect = self._canvas_rect.inflate(60, 60)
+
+    def _build_backdrop_surface(self, width: int, height: int) -> pygame.Surface:
+        surface = pygame.Surface((width, height))
+        top = hex_to_rgb("#050A19")
+        bottom = hex_to_rgb("#111B32")
+        for y in range(height):
+            t = y / max(1, height - 1)
+            color = (
+                int(top[0] * (1 - t) + bottom[0] * t),
+                int(top[1] * (1 - t) + bottom[1] * t),
+                int(top[2] * (1 - t) + bottom[2] * t),
+            )
+            pygame.draw.line(surface, color, (0, y), (width, y))
+
+        vignette = pygame.Surface((width, height), pygame.SRCALPHA)
+        for radius in range(0, max(width, height), 60):
+            alpha = max(0, 180 - radius // 2)
+            if alpha <= 0:
+                continue
+            pygame.draw.circle(
+                vignette,
+                (10, 12, 20, alpha),
+                (width // 2, height // 2),
+                radius,
+                width=4,
+            )
+        surface.blit(vignette, (0, 0))
+        return surface
+
+    def _draw_canvas_frame(self) -> None:
+        frame_rect = self._canvas_frame_rect
+        shadow_rect = frame_rect.inflate(40, 40)
+        shadow_surface = pygame.Surface(shadow_rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(shadow_surface, (*self._shadow_color, 160), shadow_surface.get_rect(), border_radius=42)
+        self._display_surface.blit(shadow_surface, shadow_rect.topleft)
+
+        frame_surface = pygame.Surface(frame_rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(frame_surface, (*self._accent_color, 60), frame_surface.get_rect(), border_radius=36)
+        pygame.draw.rect(frame_surface, (*self._accent_color, 180), frame_surface.get_rect(), width=3, border_radius=36)
+        self._display_surface.blit(frame_surface, frame_rect.topleft)

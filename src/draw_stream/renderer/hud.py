@@ -19,6 +19,7 @@ class HUDState:
     hold_remaining: float
     hold_total: float
     queue_preview: Sequence[RenderTask]
+    queue_length: int
     caption: str
     fps: float
 
@@ -30,42 +31,55 @@ class HudRenderer:
         self._title_font = pygame.font.SysFont("arial", base_size + 6, bold=True)
         self._body_font = pygame.font.SysFont("arial", base_size)
         self._small_font = pygame.font.SysFont("arial", base_size - 6)
+        self._badge_font = pygame.font.SysFont("arial", base_size - 8, bold=True)
         self._fg = hex_to_rgb("#FFFFFF")
         self._accent = hex_to_rgb("#66CCFF")
         self._warning = hex_to_rgb("#FF6666")
-        self._panel_bg = (*hex_to_rgb("#11151C"), 200)
+        self._panel_bg = (*hex_to_rgb("#141A28"), 220)
+        self._panel_outline = (*hex_to_rgb("#4B73FF"), 100)
         self._padding = 32
 
     def draw(self, surface: pygame.Surface, state: HUDState, canvas_rect: pygame.Rect) -> None:
         width, height = surface.get_size()
         panel_x = canvas_rect.right + self._padding
-        panel_width = max(260, width - panel_x - self._padding)
+        panel_width = max(320, width - panel_x - self._padding)
         if panel_x + panel_width + self._padding > width:
             panel_x = max(self._padding, width - panel_width - self._padding)
-        panel_rect = pygame.Rect(panel_x - 16, self._padding - 16, panel_width + 32, height - 2 * self._padding + 32)
-        panel_surface = pygame.Surface(panel_rect.size, pygame.SRCALPHA)
-        panel_surface.fill(self._panel_bg)
-        surface.blit(panel_surface, panel_rect.topleft)
 
-        content_rect = pygame.Rect(panel_x, self._padding, panel_width, height - 2 * self._padding)
-        self._draw_active(surface, state, content_rect)
-        self._draw_queue(surface, state.queue_preview, content_rect)
+        info_rect = pygame.Rect(panel_x, self._padding, panel_width, (height - 3 * self._padding) // 2)
+        queue_rect = pygame.Rect(panel_x, info_rect.bottom + 24, panel_width, height - info_rect.bottom - (self._padding // 2))
+
+        self._draw_card(surface, info_rect)
+        self._draw_card(surface, queue_rect)
+        self._draw_active(surface, state, info_rect.inflate(-32, -32))
+        self._draw_queue(surface, state.queue_preview, state.queue_length, queue_rect.inflate(-32, -32))
         self._draw_caption(surface, state.caption, width, height)
         self._draw_fps(surface, state.fps, width - self._padding, height - self._padding)
+        self._draw_canvas_badge(surface, state, canvas_rect)
+
+    def _draw_card(self, surface: pygame.Surface, rect: pygame.Rect) -> None:
+        card = pygame.Surface(rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(card, self._panel_bg, card.get_rect(), border_radius=28)
+        pygame.draw.rect(card, self._panel_outline, card.get_rect(), width=2, border_radius=28)
+        surface.blit(card, rect.topleft)
 
     def _draw_active(self, surface: pygame.Surface, state: HUDState, rect: pygame.Rect) -> None:
         x = rect.x
         y = rect.y
-        title = "Drawing: "
+        title = "What we're drawing"
         if state.active_task:
             event = state.active_task.event
             donor = event.donor or "anonymous"
-            title += f"{donor} — {event.amount} {event.currency}"
+            subtitle = f"{donor} — {event.amount} {event.currency}"
         else:
-            title += "waiting for request"
+            subtitle = "Awaiting next supporter"
         title_surf = self._title_font.render(title, True, self._fg)
         surface.blit(title_surf, (x, y))
         y += title_surf.get_height() + 10
+
+        subtitle_surf = self._small_font.render(subtitle, True, self._accent)
+        surface.blit(subtitle_surf, (x, y))
+        y += subtitle_surf.get_height() + 8
 
         if state.active_task:
             message_lines = wrap(state.active_task.event.message or "", width=38)
@@ -101,11 +115,12 @@ class HudRenderer:
         self,
         surface: pygame.Surface,
         queue_preview: Sequence[RenderTask],
+        queue_length: int,
         rect: pygame.Rect,
     ) -> None:
         x = rect.x
         y = rect.y + rect.height // 2
-        header = self._title_font.render("Next up", True, self._fg)
+        header = self._title_font.render(f"Queue · {queue_length}", True, self._fg)
         surface.blit(header, (x, y))
         y += header.get_height() + 8
 
@@ -132,3 +147,16 @@ class HudRenderer:
         label = self._small_font.render(f"FPS: {fps:0.1f}", True, self._fg)
         rect = label.get_rect(bottomright=(x, y))
         surface.blit(label, rect)
+
+    def _draw_canvas_badge(self, surface: pygame.Surface, state: HUDState, canvas_rect: pygame.Rect) -> None:
+        badge_rect = pygame.Rect(canvas_rect.x, canvas_rect.top - 48, 200, 36)
+        badge = pygame.Surface(badge_rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(badge, (20, 24, 36, 200), badge.get_rect(), border_radius=18)
+        pygame.draw.rect(badge, (102, 204, 255, 160), badge.get_rect(), width=1, border_radius=18)
+        surface.blit(badge, badge_rect.topleft)
+        text = "LIVE PAINTING"
+        if state.active_task and state.active_task.event.donor:
+            text = f"LIVE · {state.active_task.event.donor}"
+        label = self._badge_font.render(text.upper(), True, self._fg)
+        label_rect = label.get_rect(center=badge_rect.center)
+        surface.blit(label, label_rect)
