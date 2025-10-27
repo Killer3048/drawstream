@@ -42,6 +42,16 @@ class SceneDescription(BaseModel):
 
 
 @dataclass(slots=True)
+class ScenePlan:
+    """Decision returned by the LLM scene planner."""
+
+    approved: bool
+    description: Optional[SceneDescription] = None
+    fallback_text: Optional[str] = None
+    reason: Optional[str] = None
+
+
+@dataclass(slots=True)
 class RenderTask:
     """Task handed to the renderer worker."""
 

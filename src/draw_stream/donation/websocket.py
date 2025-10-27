@@ -37,7 +37,7 @@ class DonationAlertsWebSocket:
                     backoff = 1
                     yield event
             except Exception as exc:  # pragma: no cover - network failures
-                logger.warning("ws.connection_error", extra={"error": str(exc)})
+                logger.debug("ws.connection_error", extra={"error": str(exc)})
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * self._backoff_base, self._backoff_max)
 
@@ -86,7 +86,7 @@ class DonationAlertsWebSocket:
                 donor=data.get("username") or data.get("name") or data.get("nickname"),
                 message=data.get("message") or "",
                 amount=Decimal(str(data.get("amount_main") or data.get("amount") or 0)),
-                currency=data.get("currency") or data.get("currency_code") or "USD",
+                currency=self._settings.display_currency,
                 timestamp=self._parse_timestamp(data.get("created_at") or data.get("date_created")),
             )
         except (KeyError, TypeError, ValueError) as exc:

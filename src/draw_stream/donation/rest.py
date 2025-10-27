@@ -52,7 +52,7 @@ class DonationAlertsRESTClient:
         donor = item.get("username") or item.get("name") or item.get("nickname")
         amount_val = item.get("amount_main") or item.get("amount") or 0
         amount = Decimal(str(amount_val))
-        currency = item.get("currency") or item.get("currency_code") or "USD"
+        currency = self._settings.display_currency
         message = item.get("message") or ""
         timestamp_raw = item.get("created_at") or item.get("date_created")
         if not timestamp_raw:

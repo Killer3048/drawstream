@@ -13,7 +13,8 @@ DEFAULT_RULES = (
     r"(?i)\b(?:nsfw|porn|porno|xxx|sex|sexual|nude|naked|strip|fetish)\b",
     r"(?i)\b(?:эроти\w*|секс|порно|голый|голая|голыми|груди|сиськ\w*|член|пенис|вагин\w*|камшот)\b",
     r"(?i)\b(?:18\+|adult only|onlyfans|lewd)\b",
-    r"(?i)\b(?:fuck|fucking|cunt|dick|cock|boobs|tits)\b",
+    r"(?i)\b(?:fuck|fucking|cunt|dick|cock|boobs|tits|pussy|vagina|stripper|striptease)\b",
+    r"(?i)\b(?:хуй|хуи|пизд\w*|жоп\w*|анальн\w*|оральн\w*|минет|кунилинг\w*|куни|оральный|оральная|орально)\b",
 )
 
 
@@ -38,4 +39,3 @@ class Gatekeeper:
             if pattern.search(event.message):
                 return GatekeeperDecision(nsfw=True, rule=pattern.pattern)
         return GatekeeperDecision(nsfw=False)
-

@@ -12,17 +12,15 @@ import httpx
 from json_repair import repair_json
 
 from ..config import Settings, get_settings
-from ..models import DonationEvent, SceneDescription
+from ..models import DonationEvent, SceneDescription, ScenePlan
 
 logger = logging.getLogger(__name__)
 
 SCENE_SYSTEM_PROMPT = (
-    "You are the streamer narrating what will be drawn live in pixel art. "
-    "Interpret each donation like a director's brief: extract the main subjects, camera, mood, and palette cues. "
-    "Keep the `prompt` punchy (<=70 words), written in present tense, and mention perspective + scale. "
-    "Output strict JSON with keys: prompt, negative_prompt, style_notes (<=25 words), palette (4-6 hex colors), seed (integer). "
-    "If the donor forgot details, invent tasteful ones that fit the request. "
-    "Never mention streaming, donations, or chat inside the prompt—describe only the scene."
+    "You are the streamer narrating what will be drawn live in pixel art. Before drawing, evaluate whether the donation is suitable for a PG-13 broadcast. "
+    "Reject explicit sexual content, fetish/kink requests, nudity (including topless or genital focus), gore, hate, or harassment. Swimwear and tasteful beachwear are fine as long as coverage resembles modern swimsuits. "
+    "Respond in JSON with: decision ('draw' or 'reject'), reason (short sentence), fallback_text (what you say to the donor when you refuse), prompt (<=70 words), negative_prompt, style_notes (<=25 words), palette (4-6 hex colors), seed (integer). "
+    "Only populate the art fields when decision='draw'. For rejections, give a friendly fallback_text in the donor's language and leave prompt/style empty. Never mention streaming, donations, or chat in the art prompt—describe only the scene."
 )
 
 FEW_SHOT_EXAMPLES = [
@@ -30,6 +28,8 @@ FEW_SHOT_EXAMPLES = [
         "Donation summary:\n- donor: NeonWhale\n- amount: 150 USD\n- message: Massive tip! Paint my chrome dragon guitarist on a rain rooftop.",
         json.dumps(
             {
+                "decision": "draw",
+                "reason": "Dynamic cyberpunk scene",
                 "prompt": "Isometric neon rooftop with a chrome dragon shredding a glowing guitar, rain streaking across a holographic skyline and drones circling above.",
                 "negative_prompt": "daylight, soft pastel sky, medieval castles",
                 "style_notes": "Dark stormy night, harsh rim light and puddle reflections.",
@@ -43,11 +43,27 @@ FEW_SHOT_EXAMPLES = [
         "Donation summary:\n- donor: CozyFox\n- amount: 25 USD\n- message: Could you paint a snowy cabin with aurora and a curious fox?",
         json.dumps(
             {
+                "decision": "draw",
+                "reason": "Wholesome winter scene",
                 "prompt": "Cozy timber cabin nestled in deep snow under sweeping aurora curtains, chimney smoke curling upward while a small fox watches from the drift.",
                 "negative_prompt": "city skyline, crowds, neon signs",
                 "style_notes": "Steady twilight glow with gentle bounce light from the aurora.",
                 "palette": ["#0B0D26", "#1E3A8A", "#F5E2B8", "#FF8A5C"],
                 "seed": 90210,
+            },
+            ensure_ascii=False,
+        ),
+    ),
+    (
+        "Donation summary:\n- donor: SpicyWolf\n- amount: 60 USD\n- message: Draw my character giving explicit oral sex on stream",
+        json.dumps(
+            {
+                "decision": "reject",
+                "reason": "Explicit sexual act violates PG-13 policy",
+                "fallback_text": "Спасибо за щедрость, но такие сцены мы на стриме не рисуем—предложите другую идею!",
+                "prompt": "",
+                "palette": [],
+                "seed": 4422,
             },
             ensure_ascii=False,
         ),
@@ -79,7 +95,7 @@ class ScenePlanner:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def describe(self, event: DonationEvent) -> SceneDescription:
+    async def describe(self, event: DonationEvent) -> ScenePlan:
         messages = [
             {"role": "system", "content": SCENE_SYSTEM_PROMPT},
             {
@@ -125,19 +141,33 @@ class ScenePlanner:
                 raise ScenePlannerError("Scene planner JSON invalid") from exc
 
         try:
-            palette = [color for color in data.get("palette", []) if isinstance(color, str)]
-            palette = [color.upper() for color in palette[:6]]
-            prompt = self._clip_words(data.get("prompt", event.message), MAX_PROMPT_WORDS)
-            style_notes = self._clip_words(data.get("style_notes", ""), MAX_STYLE_WORDS)
-            seed = data.get("seed")
-            if not isinstance(seed, int):
-                seed = self._fallback_seed(event)
-            return SceneDescription(
-                prompt=prompt,
-                negative_prompt=data.get("negative_prompt"),
-                style_notes=style_notes or None,
-                palette=palette,
-                seed=seed,
+            decision = str(data.get("decision") or "draw").lower()
+            approved = decision == "draw"
+            reason = data.get("reason") or None
+            fallback_text = data.get("fallback_text") or reason
+
+            description = None
+            if approved:
+                palette = [color for color in data.get("palette", []) if isinstance(color, str)]
+                palette = [color.upper() for color in palette[:6]]
+                prompt = self._clip_words(data.get("prompt", event.message), MAX_PROMPT_WORDS)
+                style_notes = self._clip_words(data.get("style_notes", ""), MAX_STYLE_WORDS)
+                seed = data.get("seed")
+                if not isinstance(seed, int):
+                    seed = self._fallback_seed(event)
+                description = SceneDescription(
+                    prompt=prompt,
+                    negative_prompt=data.get("negative_prompt"),
+                    style_notes=style_notes or None,
+                    palette=palette,
+                    seed=seed,
+                )
+
+            return ScenePlan(
+                approved=approved,
+                description=description,
+                fallback_text=fallback_text,
+                reason=reason,
             )
         except Exception as exc:  # pragma: no cover
             raise ScenePlannerError("Scene planner response malformed") from exc

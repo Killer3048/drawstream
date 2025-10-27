@@ -92,6 +92,7 @@ class Settings(BaseSettings):
     # Misc
     log_level: LogLevel = Field(LogLevel.INFO, alias="LOG_LEVEL")
     locale: str = Field("en", alias="LOCALE")
+    display_currency: str = Field("USD", alias="DISPLAY_CURRENCY")
 
     @computed_field(return_type=dict[str, str])
     def llm_headers(self) -> dict[str, str]:

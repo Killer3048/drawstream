@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Optional
+from uuid import uuid4
 
 import uvicorn
 
 from .api.server import ControlServer
 from .config import Settings, get_settings
 from .donation.ingestor import DonationIngestor
-from .gatekeeper import Gatekeeper
 from .llm import LLMOrchestrator, LLMPlanError
 from .logging import configure_logging
 from .models import DonationEvent, RenderTask, RenderTaskType
@@ -30,7 +32,6 @@ class DrawStreamApp:
 
         self._render_queue = QueueManager(self._settings.queue_max_size)
         self._renderer = RendererRuntime(self._render_queue, self._settings)
-        self._gatekeeper = Gatekeeper()
         self._orchestrator = LLMOrchestrator()
         self._control = ControlServer(self._render_queue, self._renderer, self._settings)
         self._ingestor = DonationIngestor(self._enqueue_donation, self._settings)
@@ -66,6 +67,24 @@ class DrawStreamApp:
         await self._renderer.stop()
         await self._orchestrator.aclose()
 
+    async def enqueue_manual_donation(
+        self,
+        message: str,
+        amount: Decimal,
+        donor: str = "Console",
+        currency: Optional[str] = None,
+    ) -> None:
+        currency = currency or self._settings.display_currency
+        event = DonationEvent(
+            id=str(uuid4()),
+            donor=donor,
+            message=message,
+            amount=amount,
+            currency=currency,
+            timestamp=datetime.now(timezone.utc),
+        )
+        await self._donation_queue.put(event)
+
     async def _enqueue_donation(self, event: DonationEvent) -> None:
         await self._donation_queue.put(event)
 
@@ -81,19 +100,6 @@ class DrawStreamApp:
             raise
 
     async def _handle_event(self, event: DonationEvent) -> None:
-        decision = self._gatekeeper.evaluate(event)
-        if decision.nsfw:
-            task = RenderTask(
-                event=event,
-                content_type=RenderTaskType.TEXT,
-                fallback_text="You are too small",
-                nsfw_flag=True,
-                hold_duration_sec=self._settings.show_duration_sec,
-            )
-            await self._render_queue.enqueue(task)
-            logger.info("gatekeeper.blocked", extra={"id": event.id, "rule": decision.rule})
-            return
-
         try:
             plan = await self._orchestrator.generate_plan(event)
         except LLMPlanError as exc:
@@ -136,6 +142,10 @@ class DrawStreamApp:
             port=self._settings.api_port,
             log_level=self._settings.log_level.value.lower(),
             loop="asyncio",
+            lifespan="off",
         )
         self._api_server = uvicorn.Server(config)
-        await self._api_server.serve()
+        try:
+            await self._api_server.serve()
+        except asyncio.CancelledError:
+            pass

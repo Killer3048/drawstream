@@ -252,13 +252,14 @@ class RendererRuntime:
             (self._active_task.hold_duration_sec if self._active_task else None)
             or self._settings.show_duration_sec
         )
+        total_queue = self._queue_length + (1 if self._active_task else 0)
         hud_state = HUDState(
             active_task=self._active_task,
             progress=progress,
             hold_remaining=hold_remaining,
             hold_total=hold_total,
             queue_preview=self._queue_preview,
-            queue_length=self._queue_length,
+            queue_length=total_queue,
             caption=self._caption,
             fps=self._clock.get_fps(),
         )

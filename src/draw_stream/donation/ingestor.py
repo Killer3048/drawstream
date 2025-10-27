@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import deque
+from datetime import datetime, timezone
 from typing import Awaitable, Callable, Deque, Optional, Set
 
 from ..config import Settings, get_settings
@@ -30,6 +31,7 @@ class DonationIngestor:
         self._ws_task: Optional[asyncio.Task[None]] = None
         self._rest_task: Optional[asyncio.Task[None]] = None
         self._seen_ids: Deque[str] = deque(maxlen=256)
+        self._start_time = datetime.now(timezone.utc)
 
     async def start(self) -> None:
         logger.info("ingestor.starting")
@@ -55,7 +57,7 @@ class DonationIngestor:
             async for event in self._ws_client.listen():
                 if self._stop_event.is_set():
                     break
-                if self._dedupe(event.id):
+                if not self._should_ignore(event) and self._dedupe(event.id):
                     await self._callback(event)
         except asyncio.CancelledError:  # pragma: no cover - cancellation path
             raise
@@ -72,7 +74,7 @@ class DonationIngestor:
                     logger.warning("ingestor.rest_error", extra={"error": str(exc)})
                 else:
                     for event in events:
-                        if self._dedupe(event.id):
+                        if not self._should_ignore(event) and self._dedupe(event.id):
                             await self._callback(event)
                 await asyncio.sleep(interval)
         except asyncio.CancelledError:  # pragma: no cover - cancellation path
@@ -84,3 +86,10 @@ class DonationIngestor:
         self._seen_ids.append(event_id)
         return True
 
+    def _should_ignore(self, event: DonationEvent) -> bool:
+        # skip historical donations (e.g., REST returns previous entries on startup)
+        if event.timestamp.tzinfo is None:
+            event_ts = event.timestamp.replace(tzinfo=timezone.utc)
+        else:
+            event_ts = event.timestamp.astimezone(timezone.utc)
+        return event_ts < self._start_time

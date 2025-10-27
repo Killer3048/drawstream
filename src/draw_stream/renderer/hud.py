@@ -119,10 +119,15 @@ class HudRenderer:
         rect: pygame.Rect,
     ) -> None:
         x = rect.x
-        y = rect.y + rect.height // 2
+        y = rect.y
         header = self._title_font.render(f"Queue · {queue_length}", True, self._fg)
         surface.blit(header, (x, y))
         y += header.get_height() + 8
+
+        if not queue_preview:
+            placeholder = self._small_font.render("No pending requests", True, self._fg)
+            surface.blit(placeholder, (x, y))
+            return
 
         for idx, task in enumerate(queue_preview[:5], start=1):
             donor = task.event.donor or "anonymous"

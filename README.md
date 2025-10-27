@@ -8,6 +8,7 @@ Interactive donation-driven pixel art pipeline for live streaming. Ollama (Qwen 
 - Deterministic Canvas-DSL interpreted by a pygame renderer with pixel-by-pixel animation
 - Faux brush-stroke animation that replays the SDXL output stroke-by-stroke on a 1080p layout
 - HUD overlay displaying current job, queue preview, timers, caption, and FPS
+- LLM scene planner acts as the on-stream "artist": it approves/rejects donations per PG-13 policy before any pixels are generated
 - FastAPI control panel: health, queue snapshot, skip, and clear operations
 - Structured logging, environment-driven configuration, and graceful shutdown
 - Dual-stage art generation: scene planner (Ollama) + SDXL LoRA `nerijs/pixel-art-xl`, with automatic image-to-DSL conversion
@@ -78,6 +79,7 @@ Create a `.env` file in the project root and populate the following keys. Defaul
 | `API_HOST` / `API_PORT` | FastAPI bind address | `0.0.0.0` / `8080` |
 | `LOG_LEVEL` | Logging level | `INFO` |
 | `LOCALE` | Locale hints for the LLM | `en` |
+| `DISPLAY_CURRENCY` | Target currency code for display (`amount_main` from DA converts to this) | `USD` |
 
 ## Offline Weights
 1. Запустите `tar -xzf sdxl_bundle.tar.gz` в корне проекта. Появятся директории `sdxl-base/` (готовая SDXL-пайплайн с fp16 VAE) и `pixel-art-xl/` (LoRA вес `pixel-art-xl.safetensors`).

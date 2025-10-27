@@ -12,6 +12,7 @@ from PIL import Image
 try:  # pragma: no cover - heavy dependency
     import torch
     from diffusers import DiffusionPipeline
+    from diffusers.utils import logging as diffusers_logging
 except ImportError as exc:  # pragma: no cover
     raise RuntimeError(
         "PixelArtGenerator requires 'torch' and 'diffusers'. Please install the dependencies first."
@@ -39,6 +40,7 @@ class PixelArtGenerator:
 
         self._device = "cuda"
         dtype = torch.float16
+        diffusers_logging.set_verbosity_error()
         logger.info(
             "pixel_generator.init",
             extra={
@@ -50,7 +52,6 @@ class PixelArtGenerator:
         )
         self._pipe = DiffusionPipeline.from_pretrained(
             self._settings.pixel_model_base,
-            torch_dtype=dtype,
             use_safetensors=True,
         )
         if hasattr(self._pipe, "load_lora_weights"):
@@ -58,7 +59,7 @@ class PixelArtGenerator:
                 self._settings.pixel_lora_repo,
                 weight_name=self._settings.pixel_lora_weight,
             )
-        self._pipe.to(self._device)
+        self._pipe.to(self._device, dtype=dtype)
         self._pipe.set_progress_bar_config(disable=True)
 
     async def generate(self, description: SceneDescription) -> Image.Image:
