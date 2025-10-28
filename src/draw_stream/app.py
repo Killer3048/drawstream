@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Optional
+from typing import Callable, Optional
 from uuid import uuid4
 
 import uvicorn
 
-from .api.server import ControlServer
+from .api.server import ControlServer, DonationMode
 from .config import Settings, get_settings
 from .donation.ingestor import DonationIngestor
 from .llm import LLMOrchestrator, LLMPlanError
@@ -21,6 +22,27 @@ from .queue import QueueManager
 from .renderer.runtime import RendererRuntime
 
 logger = logging.getLogger(__name__)
+
+SIMULATED_DONORS = [
+    "Jack",
+    "Daniel",
+    "Iggi",
+    "Mira",
+    "Alex",
+    "Nika",
+    "Harper",
+    "Theo",
+    "Lina",
+    "Riley",
+    "Sunny",
+    "Kai",
+    "Nova",
+    "Eli",
+    "June",
+    "Rex",
+    "Sage",
+    "Zara",
+]
 
 
 class DrawStreamApp:
@@ -33,7 +55,12 @@ class DrawStreamApp:
         self._render_queue = QueueManager(self._settings.queue_max_size)
         self._renderer = RendererRuntime(self._render_queue, self._settings)
         self._orchestrator = LLMOrchestrator()
-        self._control = ControlServer(self._render_queue, self._renderer, self._settings)
+        self._control = ControlServer(
+            self._render_queue,
+            self._renderer,
+            self._settings,
+            command_handler=self._handle_control_command,
+        )
         self._ingestor = DonationIngestor(self._enqueue_donation, self._settings)
 
         self._donation_queue: asyncio.Queue = asyncio.Queue()
@@ -67,6 +94,11 @@ class DrawStreamApp:
         await self._renderer.stop()
         await self._orchestrator.aclose()
 
+    def register_shutdown_callback(self, callback: Callable[[], None]) -> None:
+        """Register callback invoked when remote shutdown is requested."""
+
+        self._control.register_shutdown(callback)
+
     async def enqueue_manual_donation(
         self,
         message: str,
@@ -87,6 +119,26 @@ class DrawStreamApp:
 
     async def _enqueue_donation(self, event: DonationEvent) -> None:
         await self._donation_queue.put(event)
+
+    async def _handle_control_command(
+        self,
+        amount: Decimal,
+        message: str,
+        mode: DonationMode,
+        donor: Optional[str],
+        currency: Optional[str],
+    ) -> None:
+        resolved_donor = donor or self._random_donor_name()
+        resolved_currency = currency or self._settings.display_currency
+        await self.enqueue_manual_donation(
+            message=message,
+            amount=amount,
+            donor=resolved_donor,
+            currency=resolved_currency,
+        )
+
+    def _random_donor_name(self) -> str:
+        return random.choice(SIMULATED_DONORS)
 
     async def _worker_loop(self) -> None:
         try:

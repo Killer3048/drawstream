@@ -64,8 +64,11 @@ class RendererRuntime:
         self._queue_length = 0
         self._canvas_scale = max(1, self._settings.window_scale)
         self._canvas_rect = pygame.Rect(0, 0, self._settings.canvas_w * self._canvas_scale, self._settings.canvas_h * self._canvas_scale)
-        self._side_padding = 48
+        self._side_padding = 96
+        self._content_gap = 120
         self._canvas_frame_rect = self._canvas_rect.inflate(40, 40)
+        self._fallback_overlay: Optional[pygame.Surface] = None
+        self._info_panel_width = 0
 
     async def start(self) -> None:
         if self._running:
@@ -77,7 +80,7 @@ class RendererRuntime:
         init_pygame("Draw Stream", window_width, window_height)
         self._display_surface = pygame.display.get_surface()
         self._backdrop_surface = self._build_backdrop_surface(window_width, window_height)
-        self._hud = HudRenderer((window_width, window_height))
+        self._hud = HudRenderer((window_width, window_height), content_gap=self._content_gap)
         self._running = True
         self._loop_task = asyncio.create_task(self._run_loop(), name="renderer-loop")
 
@@ -124,17 +127,18 @@ class RendererRuntime:
                 self._running = False
 
     async def _assign_tasks(self) -> None:
-        if self._pending_task is None:
-            self._pending_task = asyncio.create_task(self._queue.dequeue())
+        if self._active_task is None:
+            if self._pending_task is None:
+                self._pending_task = asyncio.create_task(self._queue.dequeue())
 
-        if self._active_task is None and self._pending_task.done():
-            try:
-                task = self._pending_task.result()
-            except asyncio.CancelledError:  # pragma: no cover
+            if self._pending_task.done():
+                try:
+                    task = self._pending_task.result()
+                except asyncio.CancelledError:  # pragma: no cover
+                    self._pending_task = None
+                    return
                 self._pending_task = None
-                return
-            self._pending_task = None
-            self._apply_new_task(task)
+                self._apply_new_task(task)
 
     def _apply_new_task(self, task: RenderTask) -> None:
         self._active_task = task
@@ -145,6 +149,7 @@ class RendererRuntime:
         self._holding_until = None
         self._drawing_complete = False
         self._skip_requested = False
+        self._fallback_overlay = None
 
         if task.content_type == RenderTaskType.TEXT:
             self._caption = "All for you"
@@ -174,11 +179,89 @@ class RendererRuntime:
             self._start_hold_timer(self._active_task.hold_duration_sec if self._active_task else None)
 
     def _render_text_card(self, text: str) -> None:
-        font = pygame.font.SysFont("arial", 18, bold=True)
-        text_surface = font.render(text, True, hex_to_rgb("#FFFFFF"))
-        rect = text_surface.get_rect(center=(self._settings.canvas_w // 2, self._settings.canvas_h // 2))
-        self._base_surface.blit(text_surface, rect)
-        self._frame_surface = self._base_surface.copy()
+        display_width = self._canvas_rect.width or (self._settings.canvas_w * self._canvas_scale)
+        display_height = self._canvas_rect.height or (self._settings.canvas_h * self._canvas_scale)
+        overlay = pygame.Surface((display_width, display_height), pygame.SRCALPHA)
+        overlay.fill(self._bg_color)
+
+        max_width = display_width - 96
+        font_size = max(28, display_width // 18)
+        min_size = 16
+        line_spacing = max(12, display_height // 30)
+
+        def layout(size: int) -> tuple[pygame.font.Font, list[str], int]:
+            local_font = pygame.font.SysFont("arial", size, bold=True)
+            candidate_lines = self._wrap_text(local_font, text, max_width)
+            line_height = local_font.size("Ag")[1]
+            total = len(candidate_lines) * line_height + max(0, len(candidate_lines) - 1) * line_spacing
+            return local_font, candidate_lines, total
+
+        font, lines, total_height = layout(font_size)
+        while total_height > display_height - 96 and font_size > min_size:
+            font_size -= 2
+            font, lines, total_height = layout(font_size)
+
+        start_y = max(48, (display_height - total_height) // 2)
+        y = start_y
+        for line in lines:
+            rendered = font.render(line, True, hex_to_rgb("#FFFFFF"))
+            rect = rendered.get_rect(center=(display_width // 2, y + rendered.get_height() // 2))
+            overlay.blit(rendered, rect)
+            y += rendered.get_height() + line_spacing
+
+        self._fallback_overlay = overlay.convert() if self._display_surface else overlay
+        reduced = pygame.transform.smoothscale(overlay, (self._settings.canvas_w, self._settings.canvas_h)).convert()
+        self._base_surface = reduced
+        self._frame_surface = reduced.copy()
+
+    def _wrap_text(self, font: pygame.font.Font, text: str, max_width: int) -> list[str]:
+        if not text:
+            return [""]
+
+        words = text.split()
+        lines: list[str] = []
+        current = ""
+
+        for word in words:
+            tentative = f"{current} {word}".strip()
+            if tentative and font.size(tentative)[0] <= max_width:
+                current = tentative
+                continue
+
+            if current:
+                lines.append(current)
+                current = ""
+
+            if font.size(word)[0] <= max_width:
+                current = word
+                continue
+
+            for segment in self._break_long_word(font, word, max_width):
+                if font.size(segment)[0] <= max_width:
+                    lines.append(segment)
+                else:  # pragma: no cover - ultra narrow fonts
+                    lines.extend(list(segment))
+
+        if current:
+            lines.append(current)
+
+        return lines or [""]
+
+    def _break_long_word(self, font: pygame.font.Font, word: str, max_width: int) -> list[str]:
+        """Split a single word into multiple segments that fit within ``max_width``."""
+
+        segments: list[str] = []
+        buffer = ""
+        for char in word:
+            candidate = buffer + char
+            if font.size(candidate)[0] <= max_width or not buffer:
+                buffer = candidate
+            else:
+                segments.append(buffer)
+                buffer = char
+        if buffer:
+            segments.append(buffer)
+        return segments
 
     def _advance_animation(self, dt_ms: float) -> None:
         if not self._active_task:
@@ -244,7 +327,10 @@ class RendererRuntime:
             return
 
         active_surface = self._frame_surface if not self._drawing_complete else self._base_surface
-        scaled = upscale(active_surface, self._canvas_scale)
+        if self._fallback_overlay is not None:
+            scaled = self._fallback_overlay
+        else:
+            scaled = upscale(active_surface, self._canvas_scale)
 
         progress = self._compute_progress()
         hold_remaining = max(0.0, (self._holding_until or 0) - time.monotonic()) if self._holding_until else 0.0
@@ -305,54 +391,84 @@ class RendererRuntime:
         self._base_surface.fill(self._bg_color)
         self._frame_surface = self._base_surface.copy()
         self._skip_requested = False
+        self._fallback_overlay = None
 
     def _compute_canvas_layout(self, window_width: int, window_height: int) -> None:
-        max_scale_width = max(1, (window_width // 2 - self._side_padding * 2) // self._settings.canvas_w)
+        info_width = max(int(window_width * 0.34), 520)
+        self._info_panel_width = info_width
+        available_width = window_width - info_width - self._content_gap - self._side_padding * 2
+        max_scale_width = max(1, available_width // self._settings.canvas_w)
         max_scale_height = max(1, (window_height - self._side_padding * 2) // self._settings.canvas_h)
         resolved_scale = min(max_scale_width, max_scale_height, self._settings.window_scale)
         self._canvas_scale = max(1, resolved_scale)
         canvas_px_w = self._settings.canvas_w * self._canvas_scale
         canvas_px_h = self._settings.canvas_h * self._canvas_scale
-        top = max(self._side_padding, (window_height - canvas_px_h) // 2)
-        self._canvas_rect = pygame.Rect(self._side_padding, top, canvas_px_w, canvas_px_h)
-        self._canvas_frame_rect = self._canvas_rect.inflate(60, 60)
+        left = self._side_padding
+        header_offset = self._side_padding
+        top = max(header_offset, (window_height - canvas_px_h) // 2)
+        self._canvas_rect = pygame.Rect(left, top, canvas_px_w, canvas_px_h)
+        self._canvas_frame_rect = self._canvas_rect.inflate(48, 48)
 
     def _build_backdrop_surface(self, width: int, height: int) -> pygame.Surface:
         surface = pygame.Surface((width, height))
-        top = hex_to_rgb("#050A19")
-        bottom = hex_to_rgb("#111B32")
+        top = hex_to_rgb("#070A1E")
+        mid = hex_to_rgb("#101A3F")
+        bottom = hex_to_rgb("#061022")
         for y in range(height):
             t = y / max(1, height - 1)
-            color = (
-                int(top[0] * (1 - t) + bottom[0] * t),
-                int(top[1] * (1 - t) + bottom[1] * t),
-                int(top[2] * (1 - t) + bottom[2] * t),
-            )
-            pygame.draw.line(surface, color, (0, y), (width, y))
+            if t < 0.55:
+                blend = t / 0.55
+                base = tuple(int(top[i] * (1 - blend) + mid[i] * blend) for i in range(3))
+            else:
+                blend = (t - 0.55) / 0.45
+                base = tuple(int(mid[i] * (1 - blend) + bottom[i] * blend) for i in range(3))
+            pygame.draw.line(surface, base, (0, y), (width, y))
 
-        vignette = pygame.Surface((width, height), pygame.SRCALPHA)
-        for radius in range(0, max(width, height), 60):
-            alpha = max(0, 180 - radius // 2)
+        stripes = pygame.Surface((width, height), pygame.SRCALPHA)
+        stripe_color = (*hex_to_rgb("#3C4FEE"), 26)
+        step = 140
+        for offset in range(-height, width, step):
+            pygame.draw.line(
+                stripes,
+                stripe_color,
+                (offset, 0),
+                (offset + height, height),
+                width=5,
+            )
+        surface.blit(stripes, (0, 0))
+
+        aura = pygame.Surface((width, height), pygame.SRCALPHA)
+        center = (int(width * 0.22), int(height * 0.28))
+        max_radius = int(max(width, height) * 0.8)
+        for radius in range(max_radius, 0, -20):
+            alpha = max(0, 140 - int(radius * 0.08))
             if alpha <= 0:
                 continue
-            pygame.draw.circle(
-                vignette,
-                (10, 12, 20, alpha),
-                (width // 2, height // 2),
-                radius,
-                width=4,
-            )
-        surface.blit(vignette, (0, 0))
+            color = (*hex_to_rgb("#2334A3"), alpha)
+            pygame.draw.circle(aura, color, center, radius)
+        surface.blit(aura, (0, 0))
+
+        vignette = pygame.Surface((width, height), pygame.SRCALPHA)
+        pygame.draw.rect(vignette, (0, 0, 0, 160), vignette.get_rect(), border_radius=28)
+        vignette = pygame.transform.gaussian_blur(vignette, 18) if hasattr(pygame.transform, "gaussian_blur") else pygame.transform.smoothscale(vignette, (width, height))
+        surface.blit(vignette, (0, 0), special_flags=pygame.BLEND_RGBA_SUB)
         return surface
 
     def _draw_canvas_frame(self) -> None:
         frame_rect = self._canvas_frame_rect
-        shadow_rect = frame_rect.inflate(40, 40)
+        glow_rect = frame_rect.inflate(40, 40)
+        glow_surface = pygame.Surface(glow_rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(glow_surface, (*self._accent_color, 18), glow_surface.get_rect(), border_radius=90)
+        self._display_surface.blit(glow_surface, glow_rect.topleft, special_flags=pygame.BLEND_RGBA_ADD)
+
+        shadow_rect = frame_rect.inflate(28, 28)
         shadow_surface = pygame.Surface(shadow_rect.size, pygame.SRCALPHA)
-        pygame.draw.rect(shadow_surface, (*self._shadow_color, 160), shadow_surface.get_rect(), border_radius=42)
+        pygame.draw.rect(shadow_surface, (5, 6, 12, 160), shadow_surface.get_rect(), border_radius=72)
         self._display_surface.blit(shadow_surface, shadow_rect.topleft)
 
         frame_surface = pygame.Surface(frame_rect.size, pygame.SRCALPHA)
-        pygame.draw.rect(frame_surface, (*self._accent_color, 60), frame_surface.get_rect(), border_radius=36)
-        pygame.draw.rect(frame_surface, (*self._accent_color, 180), frame_surface.get_rect(), width=3, border_radius=36)
+        pygame.draw.rect(frame_surface, (14, 18, 32, 220), frame_surface.get_rect(), border_radius=50)
+        pygame.draw.rect(frame_surface, (*self._accent_color, 200), frame_surface.get_rect(), width=3, border_radius=50)
+        inner = frame_surface.get_rect().inflate(-20, -20)
+        pygame.draw.rect(frame_surface, (9, 11, 20, 240), inner, border_radius=40)
         self._display_surface.blit(frame_surface, frame_rect.topleft)

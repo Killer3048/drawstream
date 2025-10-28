@@ -6,6 +6,9 @@ authors = ["Draw Stream Team <team@example.com>"]
 readme = "README.md"
 packages = [{ include = "draw_stream", from = "src" }]
 
+[tool.poetry.scripts]
+drawstream = "draw_stream.cli:main"
+
 [tool.poetry.dependencies]
 python = "^3.11"
 fastapi = "^0.119.1"

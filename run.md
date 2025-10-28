@@ -47,8 +47,8 @@ Keep the SDL window visible for OBS. The HUD shows the active donor card, queue 
 ### Console test donations
 While `python main.py` is running you can type commands in the same terminal:
 
-- `donate <amount> <message>` — manual test (e.g. `donate 7.5 Draw a cyber dragon`).
-- `da <amount> <message>` — simulates a Donation Alerts payload (donor labeled `DonationAlerts(Test)`).
+- `donate <amount> <message>` — manual test (e.g. `donate 7.5 Draw a cyber dragon`). The donor name is chosen randomly (Jack, Daniel, Iggi, etc.) unless you override with `--donor`.
+- `da <amount> <message>` — simulates a Donation Alerts payload with a random donor label (override with `--donor` if needed).
 - `quit` / `exit` — stop the app.
 
 Все консольные донаты проходят тот же пайплайн (gatekeeper → LLM → SDXL → Canvas → HUD).
@@ -146,6 +146,7 @@ PY
 ```
 
 ## 6. Unit Tests
+окружение для всех тестов: /home/vem/.cache/pypoetry/virtualenvs/draw-stream-b8xfp3zP-py3.11
 ```bash
 poetry run pytest
 ```
