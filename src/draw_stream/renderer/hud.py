@@ -1,4 +1,13 @@
-"""Heads-up display rendering for the stream window."""
+"""Heads-up display rendering for the stream window.
+
+Now includes Twitch-style safety filtering:
+we mask hateful / harassing slurs and self-harm bait phrases that are
+disallowed under Twitch's hateful conduct / harassment rules (race, religion,
+sexual orientation, gender identity, disability, etc.) as well as phrases
+Twitch itself has called out like "simp", "incel", "virgin", and self-harm
+incitement ("kys", "kill yourself"). The goal is to keep them from appearing
+on-stream in donor names / messages.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +15,7 @@ from dataclasses import dataclass
 from typing import Sequence
 
 import pygame
+import re
 
 from ..models import RenderTask
 from .surface import hex_to_rgb
@@ -42,6 +52,87 @@ class HudRenderer:
         self._panel_bg_bottom = hex_to_rgb("#0F1325")
         self._padding = 56
         self._content_gap = content_gap
+        self._banned_terms = [
+            "nigger",
+            "nigga",
+            "niglet",
+            "porchmonkey",
+            "porch monkey",
+            "coon",
+            "kike",
+            "spic",
+            "wetback",
+            "chink",
+            "gook",
+            "paki",
+            "faggot",
+            "fag",
+            "dyke",
+            "tranny",
+            "trannie",
+            "trannies",
+            "retard",
+            "retarded",
+            "cripple",
+            "crippled",
+            "simp",
+            "incel",
+            "virgin",
+            "kys",
+            "kill yourself",
+            "killyourself",
+            "kill urself",
+            "негр",
+            "нигер",
+            "ниггер",
+            "чурка",
+            "чурки",
+            "хач",
+            "хачи",
+            "хача",
+            "пидор",
+            "пидр",
+            "пидорас",
+            "пидорасы",
+            "пидарас",
+            "пидорасина",
+            "пидрила",
+            "гомик",
+            "жид",
+            "жиды",
+            "жидовка",
+            "жидов",
+            "жидовина",
+            "москаль",
+            "москали",
+            "даун",
+            "калека"
+            "pidor",
+            "pidaras",
+            "pidoras",
+            "pidorass",
+            "negr",
+        ]
+
+        self._banned_patterns = [
+            re.compile(rf"\b{re.escape(term)}\b", re.IGNORECASE)
+            for term in self._banned_terms
+        ]
+
+    def _censor_match(self, match: re.Match) -> str:
+        word = match.group(0)
+        if len(word) <= 2:
+            return "*" * len(word)
+        return word[0] + "**" + word[-1]
+
+    def _sanitize_text(self, text: str) -> str:
+        """Mask any banned terms in the given text."""
+        if not text:
+            return text
+        result = text
+        for pattern in self._banned_patterns:
+            result = pattern.sub(self._censor_match, result)
+        return result
 
     def draw(self, surface: pygame.Surface, state: HUDState, canvas_rect: pygame.Rect) -> None:
         width, height = surface.get_size()
@@ -75,7 +166,12 @@ class HudRenderer:
         surface.blit(shadow, (rect.x - 20, rect.y - 20))
 
         panel = pygame.Surface(rect.size, pygame.SRCALPHA)
-        pygame.draw.rect(panel, (self._panel_bg_top[0], self._panel_bg_top[1], self._panel_bg_top[2], 220), panel.get_rect(), border_radius=36)
+        pygame.draw.rect(
+            panel,
+            (self._panel_bg_top[0], self._panel_bg_top[1], self._panel_bg_top[2], 220),
+            panel.get_rect(),
+            border_radius=36,
+        )
         pygame.draw.rect(panel, (*self._accent, 110), panel.get_rect(), width=2, border_radius=36)
         surface.blit(panel, rect.topleft)
 
@@ -106,7 +202,7 @@ class HudRenderer:
 
         max_width = header_rect.width - 96
         padding_x, padding_y = 18, 10
-        truncated, label, chip_width, chip_height = self._chip_metrics(chip_text, max_width, padding_x, padding_y)
+        _, label, chip_width, chip_height = self._chip_metrics(chip_text, max_width, padding_x, padding_y)
         chip_x = header_rect.x + (header_rect.width - chip_width) // 2
         chip_y = header_rect.bottom + 20
         chip_rect = pygame.Rect(chip_x, chip_y, chip_width, chip_height)
@@ -124,7 +220,17 @@ class HudRenderer:
             subtitle = f"{event.amount} {event.currency} — {event.donor or 'anonymous'}"
         else:
             subtitle = "Awaiting the next supporter"
-        y = self._render_wrapped(surface, self._small_font, subtitle, self._secondary, x, y, rect.width, max_lines=2, line_spacing=4)
+        y = self._render_wrapped(
+            surface,
+            self._small_font,
+            subtitle,
+            self._secondary,
+            x,
+            y,
+            rect.width,
+            max_lines=2,
+            line_spacing=4,
+        )
         y += 12
 
         message_box_height = rect.height - (y - rect.y) - 120
@@ -138,7 +244,7 @@ class HudRenderer:
 
         if state.hold_remaining > 0:
             hold_text = f"Result on screen for {state.hold_remaining:0.0f}s"
-            hold_label = self._small_font.render(hold_text, True, self._warning)
+            hold_label = self._small_font.render(self._sanitize_text(hold_text), True, self._warning)
             surface.blit(hold_label, (x, y))
 
     def _draw_message_panel(self, surface: pygame.Surface, state: HUDState, rect: pygame.Rect) -> None:
@@ -147,7 +253,6 @@ class HudRenderer:
         pygame.draw.rect(panel, (*self._accent_alt, 110), panel.get_rect(), width=2, border_radius=32)
         surface.blit(panel, rect.topleft)
 
-        message = ""
         if state.active_task:
             message = state.active_task.event.message or ""
         else:
@@ -155,7 +260,17 @@ class HudRenderer:
 
         text_x = rect.x + 24
         text_y = rect.y + 20
-        self._render_wrapped(surface, self._body_font, message, self._fg, text_x, text_y, rect.width - 48, max_lines=6, line_spacing=6)
+        self._render_wrapped(
+            surface,
+            self._body_font,
+            message,
+            self._fg,
+            text_x,
+            text_y,
+            rect.width - 48,
+            max_lines=6,
+            line_spacing=6,
+        )
 
     def _draw_progress_bar(self, surface: pygame.Surface, rect: pygame.Rect, progress: float) -> None:
         pygame.draw.rect(surface, (18, 22, 38, 220), rect, border_radius=18)
@@ -177,7 +292,12 @@ class HudRenderer:
             surface.blit(gradient, fill_rect.topleft)
 
         gloss = pygame.Surface(inner.size, pygame.SRCALPHA)
-        pygame.draw.rect(gloss, (255, 255, 255, 40), gloss.get_rect().inflate(-inner.width * 0.1, -inner.height * 0.4), border_radius=12)
+        pygame.draw.rect(
+            gloss,
+            (255, 255, 255, 40),
+            gloss.get_rect().inflate(-inner.width * 0.1, -inner.height * 0.4),
+            border_radius=12,
+        )
         surface.blit(gloss, inner.topleft, special_flags=pygame.BLEND_RGBA_ADD)
 
     def _draw_queue(
@@ -189,7 +309,12 @@ class HudRenderer:
     ) -> None:
         title = self._title_font.render("Queue", True, self._fg)
         surface.blit(title, (rect.x, rect.y))
-        chip_rect = self._draw_chip(surface, f"{queue_length} waiting", (rect.x + title.get_width() + 24, rect.y + 4), max_width=rect.width - title.get_width() - 48)
+        chip_rect = self._draw_chip(
+            surface,
+            f"{queue_length} waiting",
+            (rect.x + title.get_width() + 24, rect.y + 4),
+            max_width=rect.width - title.get_width() - 48,
+        )
 
         y = rect.y + max(title.get_height(), chip_rect.height) + 20
         if not queue_preview:
@@ -219,11 +344,22 @@ class HudRenderer:
         donor = task.event.donor or "anonymous"
         header_text = f"{donor} · {task.event.amount} {task.event.currency}"
         header_y = rect.y + 18
-        surface.blit(self._body_font.render(header_text, True, self._fg), (rect.x + 80, header_y))
+        safe_header = self._sanitize_text(header_text)
+        surface.blit(self._body_font.render(safe_header, True, self._fg), (rect.x + 80, header_y))
 
         if task.event.message:
             message_y = header_y + self._body_font.get_linesize() + 4
-            self._render_wrapped(surface, self._small_font, task.event.message, self._secondary, rect.x + 80, message_y, rect.width - 100, max_lines=3, line_spacing=4)
+            self._render_wrapped(
+                surface,
+                self._small_font,
+                task.event.message,
+                self._secondary,
+                rect.x + 80,
+                message_y,
+                rect.width - 100,
+                max_lines=3,
+                line_spacing=4,
+            )
 
     def _draw_footer(self, surface: pygame.Surface, state: HUDState, rect: pygame.Rect) -> None:
         footer = pygame.Surface(rect.size, pygame.SRCALPHA)
@@ -232,7 +368,8 @@ class HudRenderer:
         surface.blit(footer, rect.topleft)
 
         caption = state.caption or "All for you"
-        caption_label = self._title_font.render(caption, True, self._fg)
+        safe_caption = self._sanitize_text(caption)
+        caption_label = self._title_font.render(safe_caption, True, self._fg)
         caption_rect = caption_label.get_rect(center=(rect.centerx, rect.centery))
         surface.blit(caption_label, caption_rect)
 
@@ -242,7 +379,8 @@ class HudRenderer:
         text = "LIVE PAINTING"
         if state.active_task and state.active_task.event.donor:
             text = f"LIVE · {state.active_task.event.donor}"
-        label = self._badge_font.render(text.upper(), True, self._fg)
+        safe_text = self._sanitize_text(text).upper()
+        label = self._badge_font.render(safe_text, True, self._fg)
         badge_width = max(260, label.get_width() + 80)
         badge_rect = pygame.Rect(canvas_rect.x + 32, canvas_rect.top - 60, badge_width, 44)
         badge = pygame.Surface(badge_rect.size, pygame.SRCALPHA)
@@ -252,7 +390,13 @@ class HudRenderer:
         label_rect = label.get_rect(center=badge_rect.center)
         surface.blit(label, label_rect)
 
-    def _draw_chip(self, surface: pygame.Surface, text: str, origin: tuple[int, int], max_width: int | None = None) -> pygame.Rect:
+    def _draw_chip(
+        self,
+        surface: pygame.Surface,
+        text: str,
+        origin: tuple[int, int],
+        max_width: int | None = None,
+    ) -> pygame.Rect:
         padding_x, padding_y = 18, 10
         _, label, width, height = self._chip_metrics(text, max_width, padding_x, padding_y)
         chip_rect = pygame.Rect(origin[0], origin[1], width, height)
@@ -266,7 +410,12 @@ class HudRenderer:
         padding_x: int,
         padding_y: int,
     ) -> tuple[str, pygame.Surface, int, int]:
-        label_text = self._truncate_text(self._small_font, text, (max_width - padding_x * 2) if max_width else None)
+        safe_text = self._sanitize_text(text)
+        label_text = self._truncate_text(
+            self._small_font,
+            safe_text,
+            (max_width - padding_x * 2) if max_width else None,
+        )
         label = self._small_font.render(label_text, True, self._fg)
         width = label.get_width() + padding_x * 2
         if max_width is not None:
@@ -313,7 +462,9 @@ class HudRenderer:
         if not text:
             return y
 
-        lines = self._wrap_text(font, text, max_width)
+        safe_text = self._sanitize_text(text)
+
+        lines = self._wrap_text(font, safe_text, max_width)
         if max_lines is not None:
             lines = lines[:max_lines]
 
